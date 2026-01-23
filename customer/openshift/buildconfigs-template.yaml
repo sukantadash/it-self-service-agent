@@ -1,0 +1,214 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: self-service-agent-buildconfigs
+parameters:
+  - name: IMAGE_TAG
+    description: Tag to apply to all ImageStream outputs (e.g., 0.0.8, 0.0.8-dev, latest)
+    value: latest
+objects:
+  # -----------------------------
+  # ImageStreams (outputs)
+  # -----------------------------
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: self-service-agent-request-manager
+      labels: {app: self-service-agent}
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: self-service-agent-service
+      labels: {app: self-service-agent}
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: self-service-agent-integration-dispatcher
+      labels: {app: self-service-agent}
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: self-service-agent-snow-mcp
+      labels: {app: self-service-agent}
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: self-service-agent-mock-eventing
+      labels: {app: self-service-agent}
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: self-service-agent-mock-servicenow
+      labels: {app: self-service-agent}
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: self-service-agent-promptguard
+      labels: {app: self-service-agent}
+
+  # -----------------------------
+  # BuildConfigs (binary builds)
+  # Note: These build from your local checkout via:
+  #   oc start-build bc/<name> --from-dir=<repo-root>
+  # -----------------------------
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-request-manager
+      labels: {app: self-service-agent, component: request-manager}
+    spec:
+      source:
+        type: Binary
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - name: SERVICE_NAME
+              value: request-manager
+            - name: MODULE_NAME
+              value: request_manager.main
+      output:
+        to:
+          kind: ImageStreamTag
+          name: self-service-agent-request-manager:${IMAGE_TAG}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-agent-service
+      labels: {app: self-service-agent, component: agent-service}
+    spec:
+      source:
+        type: Binary
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - name: SERVICE_NAME
+              value: agent-service
+            - name: MODULE_NAME
+              value: agent_service.main
+      output:
+        to:
+          kind: ImageStreamTag
+          name: self-service-agent-service:${IMAGE_TAG}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-integration-dispatcher
+      labels: {app: self-service-agent, component: integration-dispatcher}
+    spec:
+      source:
+        type: Binary
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - name: SERVICE_NAME
+              value: integration-dispatcher
+            - name: MODULE_NAME
+              value: integration_dispatcher.main
+      output:
+        to:
+          kind: ImageStreamTag
+          name: self-service-agent-integration-dispatcher:${IMAGE_TAG}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-snow-mcp
+      labels: {app: self-service-agent, component: snow-mcp}
+    spec:
+      source:
+        type: Binary
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.mcp-template
+          buildArgs:
+            - name: SERVICE_NAME
+              value: mcp-servers/snow
+            - name: MODULE_NAME
+              value: snow.server
+      output:
+        to:
+          kind: ImageStreamTag
+          name: self-service-agent-snow-mcp:${IMAGE_TAG}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-mock-eventing
+      labels: {app: self-service-agent, component: mock-eventing}
+    spec:
+      source:
+        type: Binary
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - name: SERVICE_NAME
+              value: mock-eventing-service
+            - name: MODULE_NAME
+              value: mock_eventing_service.main
+      output:
+        to:
+          kind: ImageStreamTag
+          name: self-service-agent-mock-eventing:${IMAGE_TAG}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-mock-servicenow
+      labels: {app: self-service-agent, component: mock-servicenow}
+    spec:
+      source:
+        type: Binary
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - name: SERVICE_NAME
+              value: mock-service-now
+            - name: MODULE_NAME
+              value: mock_servicenow.server
+      output:
+        to:
+          kind: ImageStreamTag
+          name: self-service-agent-mock-servicenow:${IMAGE_TAG}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-promptguard
+      labels: {app: self-service-agent, component: promptguard}
+    spec:
+      source:
+        type: Binary
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - name: SERVICE_NAME
+              value: promptguard-service
+            - name: MODULE_NAME
+              value: promptguard_service.server
+      output:
+        to:
+          kind: ImageStreamTag
+          name: self-service-agent-promptguard:${IMAGE_TAG}
+      triggers: []
+

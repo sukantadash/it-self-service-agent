@@ -1,0 +1,174 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: self-service-agent-buildconfigs-repo
+parameters:
+  - name: IMAGE_REPO
+    description: "Destination image repo (no trailing slash). Example: quay.io/my-org"
+    value: quay.io/rh-ai-quickstart
+  - name: IMAGE_TAG
+    description: "Tag to apply to all pushed images (e.g., 0.0.8, 0.0.8-dev, latest)"
+    value: latest
+  - name: REPO_PUSH_SECRET_NAME
+    description: "Secret name (type kubernetes.io/dockerconfigjson) used to push to IMAGE_REPO"
+    value: repo-push-secret
+objects:
+  # These BuildConfigs build from your local checkout via:
+  #   oc start-build bc/<name> --from-dir=<repo-root>
+  #
+  # They push directly to the external registry/repo as DockerImage outputs using output.pushSecret.
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-request-manager-repo
+      labels: {app: self-service-agent, component: request-manager}
+    spec:
+      source: {type: Binary}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - {name: SERVICE_NAME, value: request-manager}
+            - {name: MODULE_NAME, value: request_manager.main}
+      output:
+        to:
+          kind: DockerImage
+          name: ${IMAGE_REPO}/self-service-agent-request-manager:${IMAGE_TAG}
+        pushSecret:
+          name: ${REPO_PUSH_SECRET_NAME}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-agent-service-repo
+      labels: {app: self-service-agent, component: agent-service}
+    spec:
+      source: {type: Binary}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - {name: SERVICE_NAME, value: agent-service}
+            - {name: MODULE_NAME, value: agent_service.main}
+      output:
+        to:
+          kind: DockerImage
+          name: ${IMAGE_REPO}/self-service-agent-service:${IMAGE_TAG}
+        pushSecret:
+          name: ${REPO_PUSH_SECRET_NAME}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-integration-dispatcher-repo
+      labels: {app: self-service-agent, component: integration-dispatcher}
+    spec:
+      source: {type: Binary}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - {name: SERVICE_NAME, value: integration-dispatcher}
+            - {name: MODULE_NAME, value: integration_dispatcher.main}
+      output:
+        to:
+          kind: DockerImage
+          name: ${IMAGE_REPO}/self-service-agent-integration-dispatcher:${IMAGE_TAG}
+        pushSecret:
+          name: ${REPO_PUSH_SECRET_NAME}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-snow-mcp-repo
+      labels: {app: self-service-agent, component: snow-mcp}
+    spec:
+      source: {type: Binary}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.mcp-template
+          buildArgs:
+            - {name: SERVICE_NAME, value: mcp-servers/snow}
+            - {name: MODULE_NAME, value: snow.server}
+      output:
+        to:
+          kind: DockerImage
+          name: ${IMAGE_REPO}/self-service-agent-snow-mcp:${IMAGE_TAG}
+        pushSecret:
+          name: ${REPO_PUSH_SECRET_NAME}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-mock-eventing-repo
+      labels: {app: self-service-agent, component: mock-eventing}
+    spec:
+      source: {type: Binary}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - {name: SERVICE_NAME, value: mock-eventing-service}
+            - {name: MODULE_NAME, value: mock_eventing_service.main}
+      output:
+        to:
+          kind: DockerImage
+          name: ${IMAGE_REPO}/self-service-agent-mock-eventing:${IMAGE_TAG}
+        pushSecret:
+          name: ${REPO_PUSH_SECRET_NAME}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-mock-servicenow-repo
+      labels: {app: self-service-agent, component: mock-servicenow}
+    spec:
+      source: {type: Binary}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - {name: SERVICE_NAME, value: mock-service-now}
+            - {name: MODULE_NAME, value: mock_servicenow.server}
+      output:
+        to:
+          kind: DockerImage
+          name: ${IMAGE_REPO}/self-service-agent-mock-servicenow:${IMAGE_TAG}
+        pushSecret:
+          name: ${REPO_PUSH_SECRET_NAME}
+      triggers: []
+
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: ssa-promptguard-repo
+      labels: {app: self-service-agent, component: promptguard}
+    spec:
+      source: {type: Binary}
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Containerfile.services-template
+          buildArgs:
+            - {name: SERVICE_NAME, value: promptguard-service}
+            - {name: MODULE_NAME, value: promptguard_service.server}
+      output:
+        to:
+          kind: DockerImage
+          name: ${IMAGE_REPO}/self-service-agent-promptguard:${IMAGE_TAG}
+        pushSecret:
+          name: ${REPO_PUSH_SECRET_NAME}
+      triggers: []
+
