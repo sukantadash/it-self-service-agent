@@ -468,6 +468,16 @@ requestManagement:
     replicas: 1
     uvicornWorkers: 4  # Number of uvicorn worker processes for handling concurrent requests
     resources: {}
+    # Persist /app/agent-service/config on a PVC (useful if you want config to survive restarts
+    # and be editable without rebuilding the image). When mounted, the PVC overlays the image path.
+    configPersistence:
+      enabled: false
+      # If set, use an existing PVC instead of creating one.
+      existingClaim: ""
+      # If empty, cluster default StorageClass is used.
+      storageClassName: ""
+      accessModes: ["ReadWriteMany"]
+      size: 1Gi
     # Override LangGraph prompt configuration for specific agents
     # Format: lg-prompt-<agent-name>: "path/to/prompt.yaml"
     # Example: lg-prompt-laptop-refresh: "config/lg-prompts/my-custom-prompt.yaml"

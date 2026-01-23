@@ -29,10 +29,21 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      {{- if .Values.requestManagement.agentService.configPersistence.enabled }}
+      volumes:
+        - name: agent-service-config
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-agent-service-config" (include "self-service-agent.fullname" .)) .Values.requestManagement.agentService.configPersistence.existingClaim }}
+      {{- end }}
       containers:
         - name: init-and-complete
           image: "{{ .Values.image.registry }}/{{ .Values.image.agentService }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.requestManagement.agentService.configPersistence.enabled }}
+          volumeMounts:
+            - name: agent-service-config
+              mountPath: /app/agent-service/config
+          {{- end }}
           env:
             - name: LLAMA_STACK_URL
               value: {{ .Values.llama_stack_url }}

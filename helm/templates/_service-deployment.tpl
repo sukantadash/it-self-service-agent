@@ -64,6 +64,11 @@ spec:
         - name: UVICORN_WORKERS
           value: {{ $serviceConfig.uvicornWorkers | quote }}
         {{- end }}
+        {{- if and (eq $serviceName "agent-service") ($context.Values.requestManagement.agentService.configPersistence.enabled) }}
+        volumeMounts:
+        - name: agent-service-config
+          mountPath: /app/agent-service/config
+        {{- end }}
         # Service-specific environment variables
         # All environment variables are now handled by the templates above
         {{- if $serviceConfig.resources }}
@@ -151,6 +156,12 @@ spec:
           timeoutSeconds: {{- if eq $serviceName "integration-dispatcher" }} 10{{- else }} 3{{- end }}
           failureThreshold: {{- if eq $serviceName "agent-service" }} 60{{- else if eq $serviceName "integration-dispatcher" }} 30{{- else }} 30{{- end }}
         {{- end }}
+      {{- if and (eq $serviceName "agent-service") ($context.Values.requestManagement.agentService.configPersistence.enabled) }}
+      volumes:
+      - name: agent-service-config
+        persistentVolumeClaim:
+          claimName: {{ default (printf "%s-agent-service-config" (include "self-service-agent.fullname" $context)) $context.Values.requestManagement.agentService.configPersistence.existingClaim }}
+      {{- end }}
       restartPolicy: Always
       terminationGracePeriodSeconds: {{- if eq $serviceName "agent-service" }} 60{{- else }} 30{{- end }}
 ---
