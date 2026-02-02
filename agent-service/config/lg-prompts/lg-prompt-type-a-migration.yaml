@@ -1,0 +1,406 @@
+# State Machine Configuration for Type-A App Migration Agent
+# Goal: Discover apps in an OpenShift cluster (via OpenShift MCP) and guide a step-by-step OVA -> OpenShift Virtualization migration using MTV.
+#
+# References (workflow source):
+# - https://developers.redhat.com/learn/openshift/migrate-virtual-applications-red-hat-openshift-virtualization
+# - https://developers.redhat.com/learning/learn:openshift:migrate-virtual-applications-red-hat-openshift-virtualization/resource/resources:migrate-your-virtual-application-3-steps
+# - https://developers.redhat.com/learning/learn:openshift:migrate-virtual-applications-red-hat-openshift-virtualization/resource/resources:red-hat-openshift-virtualization-basics
+
+settings:
+  initial_state: "discover_cluster"
+  terminator_env_var: "AGENT_MESSAGE_TERMINATOR"
+  agent_name: "type-a-app-migration"
+  terminal_state: "end"
+  empty_response_retry_count: 3
+
+state_schema:
+  business_fields:
+    discovery_output:
+      type: "dict"
+      description: "Raw discovery output from OpenShift MCP tools"
+      default: null
+    discovery_status:
+      type: "string"
+      description: "Discovery classification (SUCCESS, EMPTY, ERROR)"
+      default: null
+    selected_workload:
+      type: "string"
+      description: "User-selected workload identifier (namespace + kind + name)"
+      default: null
+    selected_workload_details:
+      type: "dict"
+      description: "Details for the selected workload from OpenShift MCP"
+      default: null
+    prerequisites_check:
+      type: "dict"
+      description: "Checks for OpenShift Virtualization + MTV + storage/network context"
+      default: null
+    ova_inputs:
+      type: "dict"
+      description: "User-provided inputs for OVA-on-NFS import (NFS, OVA path, target namespace, etc.)"
+      default: null
+    migration_plan:
+      type: "dict"
+      description: "Generated step-by-step migration plan following Red Hat 3-step workflow"
+      default: null
+    retry_count:
+      type: "integer"
+      description: "Generic retry counter"
+      default: 0
+    _should_return_to_routing:
+      type: "boolean"
+      description: "Flag to indicate task completion and return to routing agent"
+      default: false
+
+states:
+  # State 0: Discover workloads in cluster (apps + VMs) using OpenShift MCP
+  discover_cluster:
+    type: "llm_processor"
+    temperature: 0.2
+    allowed_tools:
+      # IMPORTANT:
+      # This repo does not currently ship an OpenShift MCP server, so these tool names
+      # are placeholders. Update them to match your OpenShift MCP server's exported tools.
+      - "oc_get_namespaces"
+      - "oc_get_deployments"
+      - "oc_get_statefulsets"
+      - "oc_get_daemonsets"
+      - "oc_get_services"
+      - "oc_get_routes"
+      - "oc_get_ingresses"
+      - "oc_get_pvcs"
+      - "oc_get_virtualmachines"
+      - "oc_get_virtualmachineinstances"
+    prompt: |
+      You are a helpful app migration assistant.
+
+      CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently and present only the results to the user.
+
+      CRITICAL SCOPE:
+      - You must create a migration workflow that follows Red Hat’s documented “Migrate your virtual application in 3 steps” flow:
+        1) Set up NFS server (host OVA)
+        2) Prepare for migration (MTV operator)
+        3) Create a migration plan
+      - First, discover what applications are running in the OpenShift cluster using OpenShift MCP tools.
+
+      DISCOVERY RULES:
+      - Do NOT read or output Secret data. Do NOT fetch secret values. If you must reference secrets, only mention names and namespaces.
+      - Prefer non-system namespaces. Exclude: kube-*, openshift-*, default, knative-*, istio-* unless the user asks otherwise.
+      - Keep results bounded: if there are many namespaces/workloads, return the top ~30 workloads total and clearly state it is a partial view.
+
+      REQUIRED TOOL FLOW:
+      1) List namespaces.
+      2) For each candidate namespace, list:
+         - Deployments, StatefulSets, DaemonSets
+         - Services, Routes/Ingresses
+         - PVCs
+         - OpenShift Virtualization: VirtualMachines and VirtualMachineInstances (if present)
+
+      Output a single response to the user with:
+      - A concise “Discovery Summary” grouped by namespace, listing each workload kind/name and any exposed route/ingress hostnames (if present).
+      - Ask the user to choose ONE workload to migrate by replying with: "<namespace> <kind> <name>"
+    transitions:
+      success: "classify_discovery"
+    data_storage:
+      discovery_output: "llm_response"
+
+  classify_discovery:
+    type: "llm_processor"
+    temperature: 0.1
+    allowed_tools: [ "" ]
+    prompt: |
+      Analyze this discovery output: "{discovery_output.response}"
+
+      Classify as:
+      - SUCCESS: contains namespaces and at least one workload (Deployment/StatefulSet/DaemonSet/VM)
+      - EMPTY: contains no meaningful workloads
+      - ERROR: tool failure, permission failure, or unclear response
+
+      Respond with only: SUCCESS, EMPTY, or ERROR
+    response_analysis:
+      conditions:
+        - name: "success"
+          trigger_phrases: ["SUCCESS"]
+          actions:
+            - type: "set_field"
+              field_name: "discovery_status"
+              value: "SUCCESS"
+            - type: "transition"
+              target: "waiting_workload_selection"
+        - name: "empty"
+          trigger_phrases: ["EMPTY"]
+          actions:
+            - type: "set_field"
+              field_name: "discovery_status"
+              value: "EMPTY"
+            - type: "add_message"
+              message: "I didn’t find any non-system workloads to migrate. If you tell me the namespace (or if I should include system namespaces), I can re-run discovery."
+            - type: "transition"
+              target: "waiting_workload_selection"
+        - name: "error"
+          trigger_phrases: ["ERROR"]
+          actions:
+            - type: "set_field"
+              field_name: "discovery_status"
+              value: "ERROR"
+            - type: "add_message"
+              message: "I hit an issue discovering workloads in the cluster (permissions/tooling). If you confirm I should retry and which namespaces to target, I can try again."
+            - type: "transition"
+              target: "waiting_workload_selection"
+      default_transition: "waiting_workload_selection"
+
+  waiting_workload_selection:
+    type: "waiting"
+    transitions:
+      user_input: "classify_workload_selection"
+
+  classify_workload_selection:
+    type: "intent_classifier"
+    temperature: 0.2
+    allowed_tools: [ "" ]
+    intent_prompt: |
+      The user said: "{user_input}"
+
+      Determine intent:
+      - RETURN_TO_ROUTER: user wants to go back/stop/cancel
+      - RETRY_DISCOVERY: user asks to retry discovery / include more namespaces / change filters
+      - VALID_SELECTION: user provided "<namespace> <kind> <name>"
+      - INVALID_SELECTION: nonsense / not enough info
+
+      Respond with only: RETURN_TO_ROUTER, RETRY_DISCOVERY, VALID_SELECTION, or INVALID_SELECTION
+    intent_actions:
+      RETURN_TO_ROUTER:
+        response: "task_complete_return_to_router"
+        data_storage:
+          _should_return_to_routing: true
+        next_state: "end"
+      RETRY_DISCOVERY:
+        next_state: "discover_cluster"
+      VALID_SELECTION:
+        next_state: "fetch_selected_workload_details"
+        data_storage:
+          selected_workload: "{user_input}"
+      INVALID_SELECTION:
+        response: "Please choose ONE workload in this format: <namespace> <kind> <name> (example: my-ns Deployment my-app). Or tell me ‘retry discovery’ with namespaces to include."
+        next_state: "waiting_workload_selection"
+
+  fetch_selected_workload_details:
+    type: "llm_processor"
+    temperature: 0.2
+    allowed_tools:
+      # Placeholder tool names — align with your OpenShift MCP server implementation.
+      - "oc_get_deployment"
+      - "oc_get_statefulset"
+      - "oc_get_daemonset"
+      - "oc_get_virtualmachine"
+      - "oc_get_services"
+      - "oc_get_routes"
+      - "oc_get_ingresses"
+      - "oc_get_pvcs"
+    prompt: |
+      The user selected: "{selected_workload}"
+
+      CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently and present only the results to the user.
+
+      Parse the selection into: namespace, kind, name.
+      Then fetch:
+      - The workload object (based on kind)
+      - Related Services, Routes/Ingresses, PVCs in that namespace
+
+      Output to the user:
+      - “Selected Workload Details” (kind/name/namespace, image(s) if available, replicas if available)
+      - “Exposures” (route/ingress hostnames if any)
+      - “Storage” (PVC names + storage classes if available)
+
+      Then ask: “Next I’ll confirm prerequisites (OpenShift Virtualization + MTV + NFS/OVA) and produce the step-by-step migration plan. Do you want to proceed?” (yes/no)
+    transitions:
+      success: "waiting_proceed_prereqs"
+    data_storage:
+      selected_workload_details: "llm_response"
+
+  waiting_proceed_prereqs:
+    type: "waiting"
+    transitions:
+      user_input: "proceed_prereqs_intent"
+
+  proceed_prereqs_intent:
+    type: "intent_classifier"
+    temperature: 0.2
+    allowed_tools: [ "" ]
+    intent_prompt: |
+      The user was asked if they want to proceed with prerequisites check and migration planning. They said: "{user_input}"
+
+      Classify as:
+      - RETURN_TO_ROUTER
+      - YES
+      - NO
+      - UNCLEAR
+
+      Respond with only: RETURN_TO_ROUTER, YES, NO, or UNCLEAR
+    intent_actions:
+      RETURN_TO_ROUTER:
+        response: "task_complete_return_to_router"
+        data_storage:
+          _should_return_to_routing: true
+        next_state: "end"
+      "YES":
+        next_state: "check_prerequisites"
+      "NO":
+        response: "Okay—if you want, you can pick a different workload to analyze, or tell me what you want to do next."
+        next_state: "waiting_workload_selection"
+      "UNCLEAR":
+        response: "Please confirm: do you want me to proceed with prerequisites checks and the step-by-step migration plan? (yes/no)"
+        next_state: "waiting_proceed_prereqs"
+
+  # State 1: Check prerequisites (OpenShift Virtualization + MTV), then ask for OVA/NFS inputs.
+  check_prerequisites:
+    type: "llm_processor"
+    temperature: 0.2
+    allowed_tools:
+      # Placeholder tool names — align with your OpenShift MCP server implementation.
+      - "oc_get_cluster_version"
+      - "oc_get_storageclasses"
+      - "oc_get_subscriptions"
+      - "oc_get_csvs"
+    prompt: |
+      CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently and present only the results.
+
+      Check and summarize prerequisites for the Red Hat OVA->OpenShift Virtualization workflow:
+      - OpenShift Virtualization installed (operator/CSV/subscription presence)
+      - Migration Toolkit for Virtualization (MTV) installed (operator/CSV/subscription presence)
+      - Identify storage classes (for storage mapping)
+      - Basic cluster context (version)
+
+      Then ask the user for the required inputs to follow the Red Hat “3 steps” workflow:
+      1) NFS server details (hostname/IP, export path)
+      2) OVA file path on NFS (exact)
+      3) Target namespace/project for the VM
+      4) Target network (default pod network vs additional network if applicable)
+      5) Target storage class preference
+
+      Output format:
+      - Prerequisites Check: READY / NOT READY (with bullet reasons)
+      - Then a short numbered list of the inputs you need from the user (1–5 above).
+    transitions:
+      success: "waiting_ova_inputs"
+    data_storage:
+      prerequisites_check: "llm_response"
+
+  waiting_ova_inputs:
+    type: "waiting"
+    transitions:
+      user_input: "capture_ova_inputs"
+
+  capture_ova_inputs:
+    type: "llm_processor"
+    temperature: 0.3
+    allowed_tools: [ "" ]
+    prompt: |
+      The user provided these inputs: "{user_input}"
+
+      Extract and store:
+      - nfs_server
+      - nfs_export_path
+      - ova_path
+      - target_namespace
+      - target_network
+      - target_storageclass
+
+      If any are missing, ask only for the missing ones (numbered).
+      If all are present, confirm them back to the user in a short bullet list and then generate the step-by-step migration plan following Red Hat’s 3-step workflow:
+      Step 1: Set up NFS server (host OVA)
+      Step 2: Prepare for migration (MTV operator)
+      Step 3: Create a migration plan
+
+      CRITICAL: Do not include any hidden reasoning. Provide only the requested output.
+    transitions:
+      success: "generate_migration_plan"
+    data_storage:
+      ova_inputs: "llm_response"
+
+  # State 2: Produce the step-by-step plan (the core deliverable)
+  generate_migration_plan:
+    type: "llm_processor"
+    temperature: 0.3
+    allowed_tools: [ "" ]
+    prompt: |
+      Use the following context:
+      - Selected workload details: {selected_workload_details.response}
+      - Prerequisites check: {prerequisites_check.response}
+      - OVA/NFS inputs: {ova_inputs.response}
+
+      Generate a STEP-BY-STEP migration process that follows the Red Hat “Migrate your virtual application in 3 steps” workflow:
+      1) Set up NFS server (host OVA)
+      2) Prepare for migration (MTV operator)
+      3) Create a migration plan
+
+      CRITICAL OUTPUT REQUIREMENTS:
+      - Use clear numbered steps with sub-steps.
+      - Include what the user must verify at each step and what “done” looks like.
+      - Include where the user should configure storage mapping + network mapping as part of the plan creation.
+      - Include a short “Post-migration validation checklist” at the end.
+
+      End with: “Would you like me to tailor this plan for a specific environment (dev/test/prod) or add rollback steps?” (yes/no)
+    transitions:
+      success: "waiting_post_plan_input"
+    data_storage:
+      migration_plan: "llm_response"
+
+  waiting_post_plan_input:
+    type: "waiting"
+    transitions:
+      user_input: "classify_post_plan_intent"
+
+  classify_post_plan_intent:
+    type: "intent_classifier"
+    temperature: 0.2
+    allowed_tools: [ "" ]
+    intent_prompt: |
+      The user responded after receiving the migration plan: "{user_input}"
+
+      Classify as:
+      - RETURN_TO_ROUTER: user is done / wants to go back
+      - YES: user wants refinements (env tailoring / rollback / deeper steps)
+      - NO: user is done
+      - UNCLEAR
+
+      Respond with only: RETURN_TO_ROUTER, YES, NO, or UNCLEAR
+    intent_actions:
+      RETURN_TO_ROUTER:
+        response: "task_complete_return_to_router"
+        data_storage:
+          _should_return_to_routing: true
+        next_state: "end"
+      "YES":
+        prompt: |
+          Ask ONE clarifying question before refining the plan:
+          - Which environment (dev/test/prod)?
+          - Any downtime constraints?
+          - Any specific network/storage requirements?
+          Then say you will regenerate the plan after they answer.
+        next_state: "waiting_post_plan_input"
+      "NO":
+        response: "task_complete_return_to_router"
+        data_storage:
+          _should_return_to_routing: true
+        next_state: "end"
+      "UNCLEAR":
+        response: "Do you want me to refine the plan (dev/test/prod tailoring or rollback steps), or are you done? (refine/done)"
+        next_state: "waiting_post_plan_input"
+
+  end:
+    type: "terminal"
+    reset_behavior:
+      reset_state: "discover_cluster"
+      clear_data:
+        - "messages"
+        - "current_state"
+        - "discovery_output"
+        - "discovery_status"
+        - "selected_workload"
+        - "selected_workload_details"
+        - "prerequisites_check"
+        - "ova_inputs"
+        - "migration_plan"
+        - "retry_count"
+        # NOTE: _should_return_to_routing is NOT cleared here; it must persist until session manager detects it.
