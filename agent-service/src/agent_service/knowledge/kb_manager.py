@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 from agent_service.utils import create_llamastack_client
 from shared_models import configure_logging
+from llama_stack_client import RAGDocument
 
 logger = configure_logging("agent-service")
 
@@ -90,24 +91,39 @@ class KnowledgeBaseManager:
                 vector_store_name=vector_store_name,
             )
 
-            # Upload files to vector store
-            uploaded_files = self._upload_files_to_vector_store(
+            # Upload txt files to vector store
+            uploaded_txt_files = self._upload_txt_files_to_vector_store(
                 kb_directory, vector_store_id
             )
 
-            if uploaded_files > 0:
+            if uploaded_txt_files > 0:
                 logger.info(
-                    "Successfully uploaded files via LlamaStack to vector store",
-                    uploaded_files=uploaded_files,
+                    "Successfully uploaded txt files to vector store",
+                    uploaded_files=uploaded_txt_files,
+                    vector_store_id=vector_store_id,
+                )
+            else:
+                logger.warning(
+                    "No txt files uploaded to vector store"
+                )
+
+            # Upload pdf files to vector store
+            uploaded_pdf_files = self._upload_pdf_files_to_vector_store(
+                kb_directory, vector_store_id
+            )
+
+            if uploaded_pdf_files > 0:
+                logger.info(
+                    "Successfully uploaded pdf files to vector store",
+                    uploaded_files=uploaded_pdf_files,
                     vector_store_id=vector_store_id,
                 )
                 return str(vector_store_id)
             else:
                 logger.warning(
-                    "No knowledge base files uploaded via LlamaStack - vector store will be empty"
+                    "No pdf files uploaded to vector store"
                 )
-                return str(vector_store_id)  # Return ID even if empty for consistency
-
+                return str(vector_store_id)
         except Exception as e:
             logger.error(
                 "Failed to register knowledge base via LlamaStack",
@@ -117,7 +133,7 @@ class KnowledgeBaseManager:
             )
             return None
 
-    def _upload_files_to_vector_store(
+    def _upload_txt_files_to_vector_store(
         self, directory: Path, vector_store_id: str
     ) -> int:
         """Upload all txt files from a directory to LlamaStack vector store"""
@@ -171,5 +187,113 @@ class KnowledgeBaseManager:
                         error_type=type(e).__name__,
                     )
                     continue
+
+        return uploaded_count
+
+
+    def _upload_pdf_files_to_vector_store(
+        self, directory: Path, vector_store_id: str
+    ) -> int:
+        """Upload all PDF files from a directory to a LlamaStack vector store.
+
+        This mirrors the TXT ingestion flow (upload + attach to vector store),
+        and additionally converts PDFs to Markdown (Docling) and ingests the
+        Markdown via `tool_runtime.rag_tool.insert` (as in `rag-validation` notebook).
+        """
+        if self._llama_client is None:
+            logger.error("LlamaStack client not connected. Cannot upload files.")
+            return 0
+
+        uploaded_count = 0
+        pdf_files = list(directory.rglob("*.pdf"))
+        logger.info(
+            "Found knowledge base files",
+            file_count=len(pdf_files),
+            files=[f.name for f in pdf_files],
+        )
+
+        # Docling is optional/heavy; if it's not installed we still upload+attach PDFs,
+        # but we skip the PDF->Markdown ingestion step.
+        converter = None
+        try:
+            from docling.document_converter import (  # type: ignore[import-not-found]
+                DocumentConverter,
+            )
+
+            # Initialize the converter once; it can be expensive to re-create per file.
+            converter = DocumentConverter()
+        except ImportError as e:
+            logger.warning(
+                "Docling is not installed; skipping PDF-to-Markdown ingestion",
+                error=str(e),
+            )
+
+        for file_path in pdf_files:
+            if not file_path.is_file():
+                continue
+
+            try:
+                logger.info(
+                    "Uploading knowledge base file via LlamaStack",
+                    file_path=str(file_path),
+                )
+
+                # 1) Upload the raw PDF and attach it to the vector store
+                with open(file_path, "rb") as f:
+                    file_create_response = self._llama_client.files.create(
+                        file=f, purpose="assistants"
+                    )
+
+                file_id = file_create_response.id
+                self._llama_client.vector_stores.files.create(
+                    vector_store_id=vector_store_id, file_id=file_id
+                )
+
+                uploaded_count += 1
+                logger.info(
+                    "Successfully uploaded and attached file via LlamaStack",
+                    file_id=file_id,
+                    file_path=str(file_path),
+                    vector_store_id=str(vector_store_id),
+                )
+
+                if converter is None:
+                    continue
+
+                # 2) Convert PDF -> Markdown and ingest into vector DB for best RAG performance
+                result = converter.convert(str(file_path))
+                markdown_content = result.document.export_to_markdown()
+
+                document = RAGDocument(
+                    document_id=f"pdf_as_markdown::{file_path.stem}::{uuid.uuid4().hex[:8]}",
+                    content=markdown_content,
+                    mime_type="text/markdown",
+                    metadata={
+                        "source": str(file_path),
+                        "filename": file_path.name,
+                        "page_count": len(getattr(result.document, "pages", []) or []),
+                    },
+                )
+
+                # Note: LlamaStack uses `vector_db_id` for the vector store id here.
+                self._llama_client.tool_runtime.rag_tool.insert(
+                    documents=[document],
+                    vector_db_id=vector_store_id,
+                    chunk_size_in_tokens=512,
+                )
+                logger.info(
+                    "PDF as Markdown ingested successfully",
+                    file_path=str(file_path),
+                    vector_store_id=str(vector_store_id),
+                )
+
+            except Exception as e:
+                logger.error(
+                    "Failed to ingest PDF file to LlamaStack",
+                    file_path=str(file_path),
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                continue
 
         return uploaded_count

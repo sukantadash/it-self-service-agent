@@ -11,6 +11,17 @@ set -euo pipefail
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
+#
+# Windows Git-Bash/MSYS note:
+# MSYS path conversion can rewrite container paths like `/mnt/config` into a Windows path,
+# which breaks `oc exec ... -- tar -C /mnt/config ...`.
+# Disable it when running in MINGW/MSYS shells.
+#
+if [[ "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == mingw* || "${OSTYPE:-}" == cygwin* ]]; then
+  export MSYS_NO_PATHCONV=1
+  export MSYS2_ARG_CONV_EXCL="*"
+fi
+
 NAMESPACE="${1:-}"
 PVC_NAME="${2:-}"
 SRC_DIR="${3:-}"
