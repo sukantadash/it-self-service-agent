@@ -49,6 +49,13 @@ spec:
     - name: sync
       image: registry.access.redhat.com/ubi9/ubi:latest
       command: ["bash","-lc","sleep 3600"]
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
       volumeMounts:
         - name: cfg
           mountPath: ${MOUNT_PATH}
@@ -62,7 +69,11 @@ oc wait -n "$NAMESPACE" --for=condition=Ready "pod/${POD_NAME}" --timeout=120s
 
 # Replace contents
 oc exec -n "$NAMESPACE" "${POD_NAME}" -- bash -lc "rm -rf '${MOUNT_PATH:?}'/* '${MOUNT_PATH:?}'/.[!.]* '${MOUNT_PATH:?}'/..?* 2>/dev/null || true"
-tar -C "$SRC_DIR" -cf - . | oc exec -i -n "$NAMESPACE" "${POD_NAME}" -- tar -C "$MOUNT_PATH" -xf -
+
+# OpenShift + some PVCs don't allow setting file modes/timestamps under restricted SCC.
+# Avoid preserving metadata during extract.
+tar -C "$SRC_DIR" -cf - . | oc exec -i -n "$NAMESPACE" "${POD_NAME}" -- bash -lc \
+  "tar --no-same-owner --no-same-permissions --touch -C '$MOUNT_PATH' -xf -"
 
 oc delete pod -n "$NAMESPACE" "$POD_NAME" --ignore-not-found >/dev/null
 
