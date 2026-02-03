@@ -7,7 +7,6 @@ metadata:
   labels:
     {{- include "self-service-agent.labels" . | nindent 4 }}
     app: {{ include "self-service-agent.fullname" . }}-db-migration
-  # Remove Helm hooks - let jobs run naturally with Makefile cleanup
 spec:
   backoffLimit: 3
   activeDeadlineSeconds: 300

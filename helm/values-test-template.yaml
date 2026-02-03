@@ -13,6 +13,9 @@ image:
   # Overrides the chart appVersion tag
   tag: "REPLACE_ME_IMAGE_TAG"
 
+mockServiceNow:
+  enabled: true
+
 # ---------------------------------------------------------------------------
 # External dependencies (pre-installed in a different namespace)
 #
