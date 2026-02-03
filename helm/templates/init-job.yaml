@@ -11,7 +11,9 @@ metadata:
     # Kubernetes Jobs have an immutable `spec.template`, so any pod template change
     # (like adding a volume mount) will fail to patch during `helm upgrade`.
     helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded,hook-failed
+    # Keep the Job around after it runs so it's visible in `oc get jobs` for debugging.
+    # The TTL below will still clean it up later, and upgrades will delete/recreate it.
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   # Allow job to retry on failure
   backoffLimit: 6

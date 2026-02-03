@@ -26,12 +26,27 @@ helm upgrade --install it-self-service-agent-sukanta ../helm -n $NAMESPACE -f ..
 #
 # -------------------------------------------------------------------
 
+helm upgrade --install it-self-service-agent ../helm -n $NAMESPACE -f values-test.yaml
 
+2) Copy local config/docs to the PVC
+
+./customer/script-run-ingestion-job.sh <namespace> <release> <valuesFile>
+
+
+3) Run ingestion manually (recommended after every change)
+./customer/script-run-ingestion-job.sh <namespace> <release> <valuesFile>
+
+4) Check job + logs
+
+oc get jobs -n $NAMESPACE | grep init
+oc logs -n $NAMESPACE job/$(oc get jobs -n $NAMESPACE -o name | grep init | tail -n 1 | sed 's|job/||')
+
+5) Test the agent
 
 oc exec -it deploy/self-service-agent-request-manager -n $NAMESPACE -- \
   python test/chat-responses-request-mgr.py \
   --user-id alice.johnson@company.com
-
+  
 # Set LLM configuration
 export LLM=llama-4-scout-17b-16e-w4a16
 export LLM_ID=llama-4-scout-17b-16e-w4a16
