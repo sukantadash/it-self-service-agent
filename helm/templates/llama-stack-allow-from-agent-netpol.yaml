@@ -1,0 +1,18 @@
+{{- if (.Values.llamaStackNetworkPolicy.enabled | default false) }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "self-service-agent.fullname" . }}-allow-from-agent-namespace
+  namespace: {{ .Values.externalNamespaces.llamaStack | default "llama-stack" }}
+  labels:
+    {{- include "self-service-agent.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Release.Namespace }}
+{{- end }}

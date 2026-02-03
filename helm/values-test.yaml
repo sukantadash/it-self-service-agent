@@ -5,6 +5,102 @@
 environment:
   type: "test"
 
+# ---------------------------------------------------------------------------
+# External dependencies (pre-installed in a different namespace)
+#
+# This values file is designed so you can run:
+#   helm upgrade --install <release> ./helm -n <NAMESPACE> -f values-test.yaml
+#
+# If your `llama-stack` namespace has default-deny ingress, you can enable the
+# optional Helm-managed NetworkPolicy below to allow ingress from the agent namespace.
+# ---------------------------------------------------------------------------
+
+# Namespaces where external services live (not necessarily the release namespace)
+externalNamespaces:
+  llamaStack: "llama-stack"
+
+# Optional: create a NetworkPolicy in the llama-stack namespace that allows ALL ingress
+# from the agent namespace (your Helm release namespace).
+llamaStackNetworkPolicy:
+  enabled: true
+
+# LlamaStack base URL used by agent-service (override to cross-namespace service DNS)
+# Example:
+#   http://llamastack.llama-stack.svc.cluster.local:8321
+llama_stack_url: "http://llamastack.llama-stack.svc.cluster.local:8321"
+
+# Optional LlamaStack client settings (only set if needed)
+llamastack:
+  # port: 8321
+  # apiKey: ""
+  # openaiBasePath: "/v1/openai/v1"
+  # timeout: 120
+
+# Create the `Secret/pgvector` in the agent namespace from these values.
+# If you already have a secret, set `create: false` and set `name` to that secret name.
+pgvectorSecret:
+  create: true
+  name: "pgvector"
+  # REQUIRED (edit these)
+  host: "REPLACE_ME_PGVECTOR_HOST"
+  user: "REPLACE_ME_PGVECTOR_USER"
+  password: "REPLACE_ME_PGVECTOR_PASSWORD"
+  # Optional
+  port: "5432"
+  dbname: "postgres"
+
+# Optional: create ServiceNow credentials secret used by agent-service.
+# If you don't use ServiceNow integration, leave disabled.
+servicenowCredentials:
+  create: false
+  instanceUrl: "REPLACE_ME_SERVICENOW_INSTANCE_URL"
+  apiKey: "REPLACE_ME_SERVICENOW_API_KEY"
+
+# Security placeholders (these drive `templates/secrets.yaml`)
+security:
+  apiKeys:
+    snowIntegration: "REPLACE_ME_SNOW_INTEGRATION_KEY"
+    hrSystem: "REPLACE_ME_HR_SYSTEM_KEY"
+    monitoringSystem: "REPLACE_ME_MONITORING_SYSTEM_KEY"
+    # Web API keys for testing and internal tools
+    webKeys:
+      "web-test-user": "test@company.com"
+      "web-admin": "admin@company.com"
+      "web-demo": "demo@company.com"
+
+  slack:
+    signingSecret: "REPLACE_ME_SLACK_SIGNING_SECRET"
+    botToken: "REPLACE_ME_SLACK_BOT_TOKEN"
+
+  # JWT left disabled by default for tests; configure if you need it
+  jwt:
+    enabled: false
+    issuers: []
+    validation:
+      verifySignature: true
+      verifyExpiration: true
+      verifyAudience: true
+      verifyIssuer: true
+      leeway: 60
+
+  email:
+    smtpHost: "REPLACE_ME_SMTP_HOST"
+    smtpPort: "587"
+    smtpUsername: "REPLACE_ME_SMTP_USERNAME"
+    smtpPassword: "REPLACE_ME_SMTP_PASSWORD"
+    smtpUseTls: "true"
+    fromEmail: "noreply@selfservice.local"
+    fromName: "Self-Service Agent"
+    imapHost: "REPLACE_ME_IMAP_HOST"
+    imapPort: "993"
+    imapUsername: "REPLACE_ME_IMAP_USERNAME"
+    imapPassword: "REPLACE_ME_IMAP_PASSWORD"
+    imapUseSsl: "true"
+    imapMailbox: "INBOX"
+    imapPollInterval: "60"
+    imapLeaseDuration: "120"
+    imapLeaseRenewalInterval: ""
+
 # Moderate resource requirements for general testing (not performance testing)
 requestManagement:
   requestManager:

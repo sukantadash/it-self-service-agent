@@ -4,6 +4,11 @@ oc new-project it-self-service-agent
 # Set your namespace
 export NAMESPACE=it-self-service-agent
 
+
+helm upgrade --install it-self-service-agent-sukanta ../helm -n $NAMESPACE -f ../helm/values-test.yaml
+
+
+
 oc exec -it deploy/self-service-agent-request-manager -n $NAMESPACE -- \
   python test/chat-responses-request-mgr.py \
   --user-id alice.johnson@company.com

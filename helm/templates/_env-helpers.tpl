@@ -10,27 +10,27 @@ Generate database environment variables from pgvector secret
 - name: POSTGRES_HOST
   valueFrom:
     secretKeyRef:
-      name: pgvector
+      name: {{ dig "pgvectorSecret" "name" "pgvector" .Values }}
       key: host
 - name: POSTGRES_PORT
   valueFrom:
     secretKeyRef:
-      name: pgvector
+      name: {{ dig "pgvectorSecret" "name" "pgvector" .Values }}
       key: port
 - name: POSTGRES_DB
   valueFrom:
     secretKeyRef:
-      name: pgvector
+      name: {{ dig "pgvectorSecret" "name" "pgvector" .Values }}
       key: dbname
 - name: POSTGRES_USER
   valueFrom:
     secretKeyRef:
-      name: pgvector
+      name: {{ dig "pgvectorSecret" "name" "pgvector" .Values }}
       key: user
 - name: POSTGRES_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: pgvector
+      name: {{ dig "pgvectorSecret" "name" "pgvector" .Values }}
       key: password
 {{/* Database Performance Configuration */}}
 - name: DB_POOL_SIZE
