@@ -31,6 +31,7 @@ states:
       Currently you can help with:
       - Laptop refresh requests
       - Email address updates
+      - Type-A application migration (OVA -> OpenShift Virtualization using MTV)
 
       Ask them to describe what they need help with.
     transitions:
@@ -53,7 +54,8 @@ states:
 
       1. LAPTOP_REFRESH - User wants help with laptop refresh, replacement, new laptop, laptop upgrade, hardware refresh. Also includes requests that just say "refresh" or similar terms.
       2. EMAIL_CHANGE - User wants to update, change, or modify their email address
-      3. OTHER - User needs help with something else or request is unclear
+      3. TYPE_A_MIGRATION - User wants help migrating a virtual application (e.g., OVA/VMware) to Red Hat OpenShift Virtualization, or mentions MTV (Migration Toolkit for Virtualization), OpenShift Virtualization, KubeVirt, NFS-hosted OVA migration plan, or similar migration workflow requests.
+      4. OTHER - User needs help with something else or request is unclear
 
       Examples of LAPTOP_REFRESH requests:
       - "I need a new laptop"
@@ -62,7 +64,7 @@ states:
       - "I want to refresh my laptop"
       - "hardware refresh"
 
-      Respond with exactly one of: LAPTOP_REFRESH, EMAIL_CHANGE, or OTHER
+      Respond with exactly one of: LAPTOP_REFRESH, EMAIL_CHANGE, TYPE_A_MIGRATION, or OTHER
     response_analysis:
       conditions:
         - name: "laptop_refresh"
@@ -85,6 +87,16 @@ states:
               message: "email-change"
             - type: "transition"
               target: "end"
+        - name: "type_a_migration"
+          trigger_phrases: ["TYPE_A_MIGRATION"]
+          actions:
+            - type: "set_field"
+              field_name: "routing_decision"
+              value: "type-a-app-migration"
+            - type: "add_message"
+              message: "type-a-app-migration"
+            - type: "transition"
+              target: "end"
         - name: "other_request"
           trigger_phrases: ["OTHER"]
           actions:
@@ -102,6 +114,7 @@ states:
       Their request doesn't clearly match our available services. Politely explain that you can currently help with:
       - Laptop refresh requests
       - Email address updates
+      - Type-A application migration (OVA -> OpenShift Virtualization using MTV)
 
       Ask them to clarify if they need help with one of these areas, or let them know you cannot help with their specific request.
 
