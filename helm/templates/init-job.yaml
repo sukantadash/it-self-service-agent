@@ -6,6 +6,12 @@ metadata:
   labels:
     {{- include "self-service-agent.labels" . | nindent 4 }}
     app.kubernetes.io/component: init
+  annotations:
+    # Run this as a Helm hook so upgrades can safely recreate the Job.
+    # Kubernetes Jobs have an immutable `spec.template`, so any pod template change
+    # (like adding a volume mount) will fail to patch during `helm upgrade`.
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded,hook-failed
 spec:
   # Allow job to retry on failure
   backoffLimit: 6
