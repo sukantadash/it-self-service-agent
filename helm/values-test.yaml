@@ -5,6 +5,14 @@
 environment:
   type: "test"
 
+# Container image overrides (replaces old IMAGE_REGISTRY / IMAGE_TAG env vars)
+# Defaults live in `helm/values.yaml`.
+image:
+  # Example: quay.io/rh-ai-quickstart or your internal registry
+  registry: "REPLACE_ME_IMAGE_REGISTRY"
+  # Overrides the chart appVersion tag
+  tag: "REPLACE_ME_IMAGE_TAG"
+
 # ---------------------------------------------------------------------------
 # External dependencies (pre-installed in a different namespace)
 #
