@@ -22,6 +22,8 @@ set -euo pipefail
 #
 # - **LlamaStack connection** (optional; passed to Helm values)
 #   - LLAMA_STACK_URL (example: http://llamastack.<ns>.svc.cluster.local:8321)
+#   - LLAMA_STACK_NAMESPACE (default: llama-stack)
+#   - LLAMA_STACK_NETPOL_ENABLED (default: true)  # allow all from NAMESPACE -> llama-stack namespace
 #   - LLAMASTACK_API_KEY
 #   - LLAMASTACK_CLIENT_PORT
 #   - LLAMASTACK_OPENAI_BASE_PATH (default in values.yaml is usually `/v1/openai/v1`)
@@ -52,6 +54,8 @@ PGVECTOR_USER="${PGVECTOR_USER:-}"
 PGVECTOR_PASSWORD="${PGVECTOR_PASSWORD:-}"
 
 LLAMA_STACK_URL="${LLAMA_STACK_URL:-}"
+LLAMA_STACK_NAMESPACE="${LLAMA_STACK_NAMESPACE:-llama-stack}"
+LLAMA_STACK_NETPOL_ENABLED="${LLAMA_STACK_NETPOL_ENABLED:-true}"
 LLAMASTACK_API_KEY="${LLAMASTACK_API_KEY:-}"
 LLAMASTACK_CLIENT_PORT="${LLAMASTACK_CLIENT_PORT:-}"
 LLAMASTACK_OPENAI_BASE_PATH="${LLAMASTACK_OPENAI_BASE_PATH:-}"
@@ -73,6 +77,26 @@ cd "${ROOT_DIR}"
 
 echo "Ensuring namespace exists..."
 ${KUBE} create namespace "${NAMESPACE}" --dry-run=client -o yaml | ${KUBE} apply -f -
+
+if [[ "${LLAMA_STACK_NETPOL_ENABLED}" == "true" ]]; then
+  echo "Ensuring NetworkPolicy allows all traffic from ${NAMESPACE} -> ${LLAMA_STACK_NAMESPACE}..."
+  cat <<EOF | ${KUBE} apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ${RELEASE_NAME}-allow-from-${NAMESPACE}
+  namespace: ${LLAMA_STACK_NAMESPACE}
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ${NAMESPACE}
+EOF
+fi
 
 if [[ -z "${PGVECTOR_HOST}" || -z "${PGVECTOR_USER}" || -z "${PGVECTOR_PASSWORD}" ]]; then
   cat >&2 <<'EOF'
