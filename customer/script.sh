@@ -7,6 +7,25 @@ export NAMESPACE=it-self-service-agent
 
 helm upgrade --install it-self-service-agent-sukanta ../helm -n $NAMESPACE -f ../helm/values-test.yaml
 
+# -------------------------------------------------------------------
+# Optional: persist `agent-service/config` on a PVC and sync config/docs
+#
+# 1) Enable PVC-backed config in your Helm values:
+#    requestManagement:
+#      agentService:
+#        configPersistence:
+#          enabled: true
+#
+# 2) Sync local config (including knowledge_bases/*.txt) into the PVC:
+#    RELEASE=it-self-service-agent NAMESPACE=$NAMESPACE \
+#      ./script-sync-agent-config-to-pvc.sh
+#
+# 3) Re-run ingestion manually (init job) to register/ingest the updated config:
+#    RELEASE=it-self-service-agent NAMESPACE=$NAMESPACE \
+#      ./script-run-ingestion-job.sh
+#
+# -------------------------------------------------------------------
+
 
 
 oc exec -it deploy/self-service-agent-request-manager -n $NAMESPACE -- \

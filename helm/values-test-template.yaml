@@ -156,6 +156,26 @@ requestManagement:
 
   agentService:
     # No resource overrides - let Kubernetes handle resource allocation
+    # -----------------------------------------------------------------------
+    # (Optional) Persist /app/agent-service/config on a PVC.
+    #
+    # When enabled:
+    # - the agent-service Deployment mounts the PVC at /app/agent-service/config
+    # - the init Job (ingestion/register_assets) mounts the same PVC
+    #
+    # This enables updating knowledge bases and agent config without rebuilding images.
+    # Use `customer/script-sync-agent-config-to-pvc.sh` to sync your local
+    # `agent-service/config/` into the PVC.
+    # -----------------------------------------------------------------------
+    configPersistence:
+      enabled: true
+      # If set, use an existing PVC instead of creating one.
+      existingClaim: ""
+      # If empty, cluster default StorageClass is used.
+      storageClassName: ""
+      # NOTE: RWX is recommended so the init job + agent-service can mount concurrently.
+      accessModes: ["ReadWriteMany"]
+      size: 1Gi
     healthChecks:
       # Test environment - moderately conservative for CI stability
       livenessProbe:

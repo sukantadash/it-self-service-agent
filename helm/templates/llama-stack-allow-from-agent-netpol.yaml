@@ -1,4 +1,4 @@
-{{- if (.Values.llamaStackNetworkPolicy.enabled | default false) }}
+{{- if (((.Values.llamaStackNetworkPolicy | default dict).enabled) | default false) }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
