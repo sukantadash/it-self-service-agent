@@ -1,4 +1,4 @@
-{{- if .Values.llamastack.postInitScaling.enabled }}
+{{- if and .Values.llamastack .Values.llamastack.postInitScaling .Values.llamastack.postInitScaling.enabled }}
 ---
 apiVersion: batch/v1
 kind: Job

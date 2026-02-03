@@ -78,3 +78,18 @@ Users who need Toolhive can override this helper in their own charts with proper
 {{- define "mcp-servers.canDeployMCPServer" -}}
   {{- "false" }}
 {{- end }}
+
+{{/*
+pgvector secret name helper.
+
+Avoids using `dig` on `.Values` (chartutil.Values) which can error with type assertions.
+*/}}
+{{- define "self-service-agent.pgvectorSecretName" -}}
+{{- $name := "pgvector" -}}
+{{- with .Values.pgvectorSecret -}}
+  {{- if .name -}}
+    {{- $name = .name -}}
+  {{- end -}}
+{{- end -}}
+{{- $name -}}
+{{- end }}

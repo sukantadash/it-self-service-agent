@@ -31,27 +31,27 @@ spec:
         - name: POSTGRES_HOST
           valueFrom:
             secretKeyRef:
-              name: {{ dig "pgvectorSecret" "name" "pgvector" .Values }}
+              name: {{ include "self-service-agent.pgvectorSecretName" . }}
               key: host
         - name: POSTGRES_PORT
           valueFrom:
             secretKeyRef:
-              name: {{ dig "pgvectorSecret" "name" "pgvector" .Values }}
+              name: {{ include "self-service-agent.pgvectorSecretName" . }}
               key: port
         - name: POSTGRES_DB
           valueFrom:
             secretKeyRef:
-              name: {{ dig "pgvectorSecret" "name" "pgvector" .Values }}
+              name: {{ include "self-service-agent.pgvectorSecretName" . }}
               key: dbname
         - name: POSTGRES_USER
           valueFrom:
             secretKeyRef:
-              name: {{ dig "pgvectorSecret" "name" "pgvector" .Values }}
+              name: {{ include "self-service-agent.pgvectorSecretName" . }}
               key: user
         - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ dig "pgvectorSecret" "name" "pgvector" .Values }}
+              name: {{ include "self-service-agent.pgvectorSecretName" . }}
               key: password
         {{- if .Values.requestManagement.dbMigration.resources }}
         resources:
