@@ -1,0 +1,308 @@
+version: "2"
+image_name: rh
+
+server:
+  port: 8321
+  auth:
+    provider_config:
+      type: oauth2_token
+      jwks:
+        uri: "https://kubernetes.default.svc/keys.json"
+        token: "${env.TOKEN:+}"
+        key_recheck_period: 3600
+      issuer: "https://kubernetes.default.svc"
+      audience: "https://kubernetes.default.svc"
+      verify_tls: ${env.SSO_VERIFY_TLS:=false}
+      claims_mapping:
+        llamastack_roles: roles
+        llamastack_teams: teams
+    access_policy:
+      - description: Allow all authenticated users to access Qwen 3 Guard 4B model via vLLM
+        permit:
+          actions: [read]
+          resource: model::vllm-inference-1/qwen3-guard-4b
+      - description: Allow all authenticated users to access bge-m3 model via vLLM
+        permit:
+          actions: [read]
+          resource: model::vllm-inference-2/bge-m3
+      - description: Allow all authenticated users to access gpt-oss-120b model via vLLM
+        permit:
+          actions: [read]
+          resource: model::vllm-inference-3/gpt-oss-120b
+      - description: Allow all authenticated users to access qwen3-14b model via vLLM
+        permit:
+          actions: [read]
+          resource: model::vllm-inference-4/qwen3-14b
+      - description: Allow all authenticated users to access qwen3-coder-30b model via vLLM
+        permit:
+          actions: [read]
+          resource: model::vllm-inference-5/qwen3-coder-30b
+      - description: Allow all authenticated users to access qwen3-vl-30b model via vLLM
+        permit:
+          actions: [read]
+          resource: model::vllm-inference-6/qwen3-vl-30b
+
+apis:
+  - agents
+  - datasetio
+  - files
+  - inference
+  - safety
+  - scoring
+  - tool_runtime
+  - vector_io
+
+registered_resources:
+  shields:
+    - shield_id: trustyai_input
+      provider_id: trustyai_fms
+    - shield_id: trustyai_output
+      provider_id: trustyai_fms
+
+  models:
+    - model_id: qwen3-guard-4b
+      provider_id: vllm-inference-1
+      model_type: llm
+      metadata: {}
+    - model_id: bge-m3
+      provider_id: vllm-inference-2
+      model_type: embedding
+      metadata:
+        embedding_dimension: 1024
+    - model_id: gpt-oss-120b
+      provider_id: vllm-inference-3
+      model_type: llm
+      metadata: {}
+    - model_id: qwen3-14b
+      provider_id: vllm-inference-4
+      model_type: llm
+      metadata: {}
+    - model_id: qwen3-coder-30b
+      provider_id: vllm-inference-5
+      model_type: llm
+      metadata: {}
+    - model_id: qwen3-vl-30b
+      provider_id: vllm-inference-6
+      model_type: llm
+      metadata: {}
+
+vector_dbs: []
+datasets: []
+scoring_fns: []
+benchmarks: []
+
+tool_groups:
+  - toolgroup_id: builtin::rag
+    provider_id: rag-runtime
+
+storage:
+  backends:
+    kv_default:
+      type: kv_postgres
+      host: ${env.POSTGRES_HOST:=localhost}
+      port: ${env.POSTGRES_PORT:=5432}
+      db: ${env.POSTGRES_DB:=llamastack}
+      user: ${env.POSTGRES_USER:=llamastack}
+      password: ${env.POSTGRES_PASSWORD:=llamastack}
+      table_name: ${env.POSTGRES_TABLE_NAME:=llamastack_kvstore}
+
+    sql_default:
+      type: sql_postgres
+      host: ${env.POSTGRES_HOST:=localhost}
+      port: ${env.POSTGRES_PORT:=5432}
+      db: ${env.POSTGRES_DB:=llamastack}
+      user: ${env.POSTGRES_USER:=llamastack}
+      password: ${env.POSTGRES_PASSWORD:=llamastack}
+
+  stores:
+    conversations:
+      backend: sql_default
+      table_name: openai_conversations
+
+    inference:
+      backend: sql_default
+      table_name: inference_store
+      max_write_queue_size: 10000
+      num_writers: 4
+
+    metadata:
+      backend: kv_default
+      namespace: registry
+
+    prompts:
+      backend: kv_default
+      namespace: prompts
+
+providers:
+  safety:
+    - provider_id: trustyai_fms
+      module: llama_stack_provider_trustyai_fms==0.3.2
+      provider_type: remote::trustyai_fms
+      config:
+        shields:
+          trustyai_input:
+            type: content
+            detector_url: "https://custom-guardrails-service:8480"
+            detector_params:
+              custom:
+                input_guardrail:
+                  input_policies: [jailbreak, content-moderation, pii]
+                  guardrail_model: vllm/gpt-oss-120b
+                  guardrail_model_token: "${TOKEN}"
+                  guardrail_model_url: "http://lsd-genai-playground-service.deploy-ai-models.svc.cluster.local:8321/v1/chat/completions"
+            message_types: ["user"]
+            verify_ssl: false
+            auth_token: "${TOKEN}"
+
+          trustyai_output:
+            type: content
+            detector_url: "https://custom-guardrails-service:8480"
+            detector_params:
+              custom:
+                output_guardrail:
+                  output_policies: [jailbreak, content-moderation, pii]
+                  guardrail_model: vllm/gpt-oss-120b
+                  guardrail_model_token: "${TOKEN}"
+                  guardrail_model_url: "http://lsd-genai-playground-service.deploy-ai-models.svc.cluster.local:8321/v1/chat/completions"
+            message_types: ["user", "completion"]
+            verify_ssl: false
+            auth_token: "${TOKEN}"
+
+  inference:
+    - provider_id: vllm-inference-1
+      provider_type: remote::vllm
+      config:
+        base_url: ${env.VLLM_GUARD_URL:=}
+        max_tokens: ${env.VLLM_MAX_TOKENS:=4096}
+        api_token: ${env.VLLM_API_TOKEN}
+        tls_verify: ${env.VLLM_TLS_VERIFY:=true}
+
+    - provider_id: vllm-inference-2
+      provider_type: remote::vllm
+      config:
+        base_url: ${env.VLLM_EMBED_URL:=}
+        max_tokens: ${env.VLLM_MAX_TOKENS:=8192}
+        api_token: ${env.VLLM_API_TOKEN}
+        tls_verify: ${env.VLLM_TLS_VERIFY:=true}
+
+    - provider_id: vllm-inference-3
+      provider_type: remote::vllm
+      config:
+        base_url: ${env.VLLM_GPT_OSS_URL:=}
+        max_tokens: ${env.VLLM_MAX_TOKENS:=16384}
+        api_token: ${env.VLLM_API_TOKEN}
+        tls_verify: ${env.VLLM_TLS_VERIFY:=true}
+
+    - provider_id: vllm-inference-4
+      provider_type: remote::vllm
+      config:
+        base_url: ${env.VLLM_QWEN_URL:=}
+        max_tokens: ${env.VLLM_MAX_TOKENS:=16384}
+        api_token: ${env.VLLM_API_TOKEN}
+        tls_verify: ${env.VLLM_TLS_VERIFY:=true}
+
+    - provider_id: vllm-inference-5
+      provider_type: remote::vllm
+      config:
+        base_url: ${env.VLLM_QWEN_CODER_URL:=}
+        max_tokens: ${env.VLLM_MAX_TOKENS:=16384}
+        api_token: ${env.VLLM_API_TOKEN}
+        tls_verify: ${env.VLLM_TLS_VERIFY:=true}
+
+    - provider_id: vllm-inference-6
+      provider_type: remote::vllm
+      config:
+        base_url: ${env.VLLM_QWEN_VL_URL:=}
+        max_tokens: ${env.VLLM_MAX_TOKENS:=16384}
+        api_token: ${env.VLLM_API_TOKEN}
+        tls_verify: ${env.VLLM_TLS_VERIFY:=true}
+
+  agents:
+    - provider_id: meta-reference
+      provider_type: inline::meta-reference
+      config:
+        persistence:
+          agent_state:
+            backend: kv_default
+            namespace: agents::meta_reference
+          responses:
+            backend: sql_default
+            table_name: agents_responses
+            max_write_queue_size: 10000
+            num_writers: 4
+
+  eval: []
+
+  files:
+    - provider_id: meta-reference-files
+      provider_type: inline::localfs
+      config:
+        storage_dir: /opt/app-root/src/.llama/distributions/rh/files
+        metadata_store:
+          backend: sql_default
+          table_name: files_metadata
+
+    - provider_id: ${env.ENABLE_S3:+s3}
+      provider_type: remote::s3
+      config:
+        bucket_name: ${env.S3_BUCKET_NAME:=}
+        region: ${env.AWS_DEFAULT_REGION:=us-east-1}
+        aws_access_key_id: ${env.AWS_ACCESS_KEY_ID:=}
+        aws_secret_access_key: ${env.AWS_SECRET_ACCESS_KEY:=}
+        endpoint_url: ${env.S3_ENDPOINT_URL:=}
+        auto_create_bucket: ${env.S3_AUTO_CREATE_BUCKET:=false}
+        metadata_store:
+          backend: sql_default
+          table_name: files_metadata
+
+  batches:
+    - provider_id: reference
+      provider_type: inline::reference
+      config:
+        kvstore:
+          backend: kv_default
+          namespace: batches
+
+  datasetio:
+    - provider_id: localfs
+      provider_type: inline::localfs
+      config:
+        kvstore:
+          backend: kv_default
+          namespace: datasetio::localfs
+
+  scoring:
+    - provider_id: basic
+      provider_type: inline::basic
+      config: {}
+    - provider_id: llm-as-judge
+      provider_type: inline::llm-as-judge
+      config: {}
+
+  vector_io:
+    - provider_id: milvus
+      provider_type: inline::milvus
+      config:
+        db_path: /opt/app-root/src/.llama/distributions/rh/milvus.db
+        persistence:
+          backend: kv_default
+          namespace: vector_io::milvus
+
+  tool_runtime:
+    - provider_id: rag-runtime
+      provider_type: inline::rag-runtime
+      config: {}
+    - provider_id: model-context-protocol
+      provider_type: remote::model-context-protocol
+      config: {}
+
+metadata_store:
+  type: sqlite
+  db_path: /opt/app-root/src/.llama/distributions/rh/registry.db
+
+inference_store:
+  type: sqlite
+  db_path: /opt/app-root/src/.llama/distributions/rh/inference_store.db
+
+telemetry:
+  enabled: true
