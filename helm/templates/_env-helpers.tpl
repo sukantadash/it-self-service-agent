@@ -170,6 +170,10 @@ Generate Agent Service specific environment variables
   value: {{ .Values.llama_stack_url | default "http://llamastack:8321" | quote }}
 {{/* LlamaStack OpenAI Client Configuration */}}
 {{- if hasKey .Values "llamastack" }}
+{{- if .Values.llamastack.host }}
+- name: LLAMASTACK_SERVICE_HOST
+  value: {{ .Values.llamastack.host | quote }}
+{{- end }}
 {{- if .Values.llamastack.port }}
 - name: LLAMASTACK_CLIENT_PORT
   value: {{ .Values.llamastack.port | quote }}

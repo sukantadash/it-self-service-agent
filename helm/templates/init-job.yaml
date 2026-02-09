@@ -37,7 +37,7 @@ spec:
             - name: LLAMA_STACK_URL
               value: {{ .Values.llama_stack_url }}
             - name: LLAMASTACK_SERVICE_HOST
-              value: "llamastack"
+              value: {{ if and (hasKey .Values "llamastack") (.Values.llamastack.host) }}{{ .Values.llamastack.host | quote }}{{ else }}"llamastack"{{ end }}
             {{- if hasKey .Values "llamastack" }}
             {{- if .Values.llamastack.port }}
             - name: LLAMASTACK_CLIENT_PORT
