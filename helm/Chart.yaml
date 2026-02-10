@@ -8,7 +8,7 @@ version: 0.1.0
 
 appVersion: 0.0.10
 
-# dependencies:
+dependencies:
 #   - name: pgvector
 #     version: 0.1.0
 #     repository: https://rh-ai-quickstart.github.io/ai-architecture-charts
@@ -19,7 +19,7 @@ appVersion: 0.0.10
 #   - name: llama-stack
 #     version: 0.6.9
 #     repository: https://rh-ai-quickstart.github.io/ai-architecture-charts
-#   - name: mcp-servers
-#     version: 0.5.8
-#     repository: https://rh-ai-quickstart.github.io/ai-architecture-charts
-#     condition: mcp-servers.enabled
+  - name: mcp-servers
+    version: 0.5.8
+    repository: https://rh-ai-quickstart.github.io/ai-architecture-charts
+    condition: mcp-servers.enabled

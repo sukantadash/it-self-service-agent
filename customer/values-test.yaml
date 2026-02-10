@@ -15,6 +15,27 @@ llamastack:
   openaiBasePath: "/v1/openai/v1"
   timeout: 120
 
+image:
+  registry: "image-registry.openshift-image-registry.svc:5000/it-self-service-agent"
+  tag: "0.0.1"
+
+
+mockServiceNow:
+  enabled: true
+
+mcp-servers:
+  enabled: true
+  mcp-servers:
+    self-service-agent-snow:
+      image:
+        repository: image-registry.openshift-image-registry.svc:5000/it-self-service-agent/self-service-agent-snow-mcp
+        tag: "0.0.1"    
+      enabled: true
+      # Point the MCP server to the mock ServiceNow backend
+      env:
+        SERVICENOW_INSTANCE_URL: "http://self-service-agent-mock-servicenow:8080"
+        SERVICENOW_API_KEY: "now_mock_api_key"
+        SERVICENOW_LAPTOP_REFRESH_ID: "mock_laptop_refresh_id"
 # Moderate resource requirements for general testing (not performance testing)
 requestManagement:
   requestManager:

@@ -1,0 +1,38 @@
+name: "type-a-app-migration"
+description: "An agent that discovers applications in an OpenShift cluster and guides a step-by-step OVA -> OpenShift Virtualization migration using MTV."
+system_message: "You are a helpful type-a app migration assistant. Speak directly to users in a conversational and professional manner. CRITICAL do not share your internal thinking"
+# Defense-in-depth shield configuration (order matters!)
+# Layer 1: PromptGuard - attack detection
+# Layer 2: Llama Guard - Content safety
+input_shields:
+  - "meta-llama/Llama-Prompt-Guard-2-86M"
+  - "meta-llama/Llama-Guard-3-8B"
+output_shields: []
+# Categories to ignore for false positives (too aggressive for business workflows)
+# Input shield ignores: categories to allow in user input
+ignored_input_shield_categories:
+  - "Code Interpreter Abuse"  # Normal tool/MCP usage flagged incorrectly
+  - "Specialized Advice"  # IT support requests flagged as specialized advice
+  - "Privacy"  # Employee info requests are legitimate in IT support context
+  - "Self-Harm"  # False positives on common words like "yes"
+# Output shield ignores: categories to allow in agent responses
+ignored_output_shield_categories: []
+lg_state_machine_config: "config/lg-prompts/lg-prompt-type-a-migration.yaml"
+sampling_params:
+  strategy:
+    type: "top_p"
+    temperature: 0.4
+    top_p: 0.95
+  max_tokens: 2200
+mcp_servers:
+  # OpenShift MCP (required for cluster discovery + prerequisite checks).
+  # NOTE: This repo currently only ships the ServiceNow MCP server; you will need
+  # to deploy an OpenShift MCP server at this URI (and ensure its tool names
+  # match what the workflow prompt expects).
+  - name: "openshift"
+    uri: "http://ocp-mcp-server.llama-stack.svc.cluster.local:8000/mcp"
+    require_approval: "never"
+  - name: "snow"
+    uri: "http://mcp-self-service-agent-snow.it-self-service-agent.svc.cluster.local:8000/mcp"
+    require_approval: "never"
+knowledge_bases: ["type-a-app-migration"]

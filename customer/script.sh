@@ -4,74 +4,97 @@ oc new-project it-self-service-agent
 # Set your namespace
 export NAMESPACE=it-self-service-agent
 
-kubectl create secret generic it-self-service-agent-sukanta-servicenow-credentials \
-  --from-literal=servicenow-instance-url="${SERVICENOW_INSTANCE_URL:-}" \
-  --from-literal=servicenow-api-key="${SERVICENOW_API_KEY:-}" \
-  -n "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+#Build images manually
+export IMAGE_TAG=0.0.1
+./customer/script-images.sh
+
+#build images from repo
+export IMAGE_REPO=quay.io/rh-ai-quickstart
+export IMAGE_TAG=0.0.1
+export REPO_PUSH_SECRET_NAME=repo-push-secret
+export DOCKERCONFIGJSON='{"auths":{"quay.io":{"auth":"<base64(username:token)>"}}}'
+./customer/script-images-repo.sh
+
+#build agent service image
+oc start-build bc/ssa-agent-service -n $NAMESPACE --from-dir=.
+
+
+
+kubectl -n "$NAMESPACE" create secret generic self-service-agent-servicenow-credentials \
+  --from-literal=servicenow-instance-url="http://self-service-agent-mock-servicenow:8080" \
+  --from-literal=servicenow-api-key="now_mock_api_key" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n "$NAMESPACE" create secret generic pgvector \
-  --from-literal=host="YOUR_PG_SERVICE.YOUR_PG_NAMESPACE.svc.cluster.local" \
+  --from-literal=host="pgvector.llama-stack.svc.cluster.local" \
   --from-literal=port="5432" \
-  --from-literal=dbname="postgres" \
-  --from-literal=user="postgres" \
+  --from-literal=dbname="pgvector" \
+  --from-literal=user="pguser" \
   --from-literal=password="YOUR_PASSWORD" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl -n llama-stack get pods --show-labels
 
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-self-service-agent-to-llama-stack
+  name: allow-it-self-service-agent-to-llama-stack
   namespace: llama-stack
 spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: llama-stack   # <-- adjust to your llama-stack pod labels
+  podSelector: {}   # applies to ALL pods in llama-stack namespace
   policyTypes:
   - Ingress
   ingress:
   - from:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: <YOUR_AGENT_NAMESPACE>
-    ports:
-    - protocol: TCP
-      port: 8321
+          kubernetes.io/metadata.name: it-self-service-agent
+
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-llama-stack-to-it-self-service-agent
+  namespace: it-self-service-agent
+spec:
+  podSelector: {}   # applies to ALL pods in it-self-service-agent namespace
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: llama-stack
+
+#Apply below to both namespaces
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+spec:
+  podSelector: {}   # all pods in llama-stack
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector: {} 
 
 #verify
-kubectl -n <YOUR_AGENT_NAMESPACE> exec -it deploy/self-service-agent-request-manager -- \
-  sh -lc 'curl -sS -m 5 http://llamastack.llama-stack.svc.cluster.local:8321/ || true'
+kubectl -n "$NAMESPACE" exec -it deploy/self-service-agent-request-manager -- \
+  sh -lc 'curl -sS -m 5 http://llamastack-with-config-service.llama-stack.svc.cluster.local:8321/ || true'
 
 kubectl delete job -l app.kubernetes.io/component=init -n "$NAMESPACE" --ignore-not-found
 kubectl delete job -l app.kubernetes.io/name=self-service-agent -n "$NAMESPACE" --ignore-not-found
 
+mv ./customer/mcp-servers-0.5.8.tgz ./helm/charts/
+
 ## comment the dependencies: in chart.yaml
 
-helm upgrade --install it-self-service-agent-sukanta helm -n $NAMESPACE -f ./customer/values-test.yaml
+helm upgrade --install self-service-agent helm -n $NAMESPACE -f ./customer/values-test.yaml
 
-helm template it-self-service-agent-sukanta helm -n $NAMESPACE -f ./customer/values-test.yaml
+helm template self-service-agent helm -n $NAMESPACE -f ./customer/values-test.yaml
 
-# -------------------------------------------------------------------
-# Optional: persist `agent-service/config` on a PVC and sync config/docs
-#
-# 1) Enable PVC-backed config in your Helm values:
-#    requestManagement:
-#      agentService:
-#        configPersistence:
-#          enabled: true
-#
-# 2) Sync local config (including knowledge_bases/*.txt) into the PVC:
-#    RELEASE=it-self-service-agent NAMESPACE=$NAMESPACE \
-#      ./script-sync-agent-config-to-pvc.sh
-#
-# 3) Re-run ingestion manually (init job) to register/ingest the updated config:
-#    RELEASE=it-self-service-agent NAMESPACE=$NAMESPACE \
-#      ./script-run-ingestion-job.sh
-#
-# -------------------------------------------------------------------
-
-helm upgrade --install it-self-service-agent ../helm -n $NAMESPACE -f values-test.yaml
 
 2) Copy local config/docs to the PVC
 
@@ -85,6 +108,8 @@ helm upgrade --install it-self-service-agent ../helm -n $NAMESPACE -f values-tes
 
 oc get jobs -n $NAMESPACE | grep init
 oc logs -n $NAMESPACE job/$(oc get jobs -n $NAMESPACE -o name | grep init | tail -n 1 | sed 's|job/||')
+
+
 
 5) Test the agent
 
