@@ -1,0 +1,13 @@
+{
+    "metadata": {
+        "authoritative_user_id": "type-a-migration-user-1@mockcompany.com",
+        "description": "User requests asks about type A app migrations on openshift and is routed to the type A app migration agent"
+    },
+    "conversation": [
+        {"role": "user", "content": "Need migration support"}, 
+        {"role": "user", "content": "180552"},
+        {"role": "user", "content": "cti-svcs-etlaas-180552"},
+        {"role": "user", "content": "Data Transformation as a Service"},
+        {"role": "user", "content": "namctigtd21d"}
+    ]
+}

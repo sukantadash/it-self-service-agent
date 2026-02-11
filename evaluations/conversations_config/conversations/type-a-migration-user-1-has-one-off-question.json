@@ -1,0 +1,10 @@
+{
+    "metadata": {
+        "authoritative_user_id": "type-a-migration-user-1@mockcompany.com",
+        "description": "User requests asks about type a app migrations on openshift"
+    },
+    "conversation": [
+        {"role": "user", "content": "I have a migration related question."},
+        {"role": "user", "content": "What information is needed for you to kick off a migration request?"}
+    ]
+}
