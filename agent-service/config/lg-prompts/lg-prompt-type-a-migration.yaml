@@ -1,13 +1,11 @@
 # State Machine Configuration for Type-A App Migration Agent
-# Goal: Discover apps in an OpenShift cluster (via OpenShift MCP) and guide a step-by-step OVA -> OpenShift Virtualization migration using MTV.
-#
-# References (workflow source):
-# - https://developers.redhat.com/learn/openshift/migrate-virtual-applications-red-hat-openshift-virtualization
-# - https://developers.redhat.com/learning/learn:openshift:migrate-virtual-applications-red-hat-openshift-virtualization/resource/resources:migrate-your-virtual-application-3-steps
-# - https://developers.redhat.com/learning/learn:openshift:migrate-virtual-applications-red-hat-openshift-virtualization/resource/resources:red-hat-openshift-virtualization-basics
+# Goal:
+# - Identify an application from the App Catalog (via app-migration-utility MCP).
+# - Once uniquely identified (app_id/app_name/namespace/source_cluster/destination_cluster),
+#   discover relevant OpenShift resources in that namespace (via OpenShift MCP).
 
 settings:
-  initial_state: "discover_cluster"
+  initial_state: "lookup_app"
   terminator_env_var: "AGENT_MESSAGE_TERMINATOR"
   agent_name: "type-a-app-migration"
   terminal_state: "end"
@@ -15,53 +13,241 @@ settings:
 
 state_schema:
   business_fields:
-    discovery_output:
-      type: "dict"
-      description: "Raw discovery output from OpenShift MCP tools"
-      default: null
-    discovery_status:
+    # Business logic fields (requested)
+    app_id:
       type: "string"
-      description: "Discovery classification (SUCCESS, EMPTY, ERROR)"
+      description: "Unique app identifier from app catalog"
       default: null
-    selected_workload:
+    app_name:
       type: "string"
-      description: "User-selected workload identifier (namespace + kind + name)"
+      description: "App name from app catalog"
       default: null
-    selected_workload_details:
+    namespace:
+      type: "string"
+      description: "Namespace/project for the application"
+      default: null
+    source_cluster:
+      type: "string"
+      description: "Source cluster identifier/URL for the application"
+      default: null
+    destination_cluster:
+      type: "string"
+      description: "Destination cluster identifier/URL for the application"
+      default: null
+
+    # Supporting fields for this workflow
+    app_lookup_results:
       type: "dict"
-      description: "Details for the selected workload from OpenShift MCP"
+      description: "Raw response from search_app_catalog (and any formatted options shown to user)"
       default: null
-    prerequisites_check:
+    selected_app_choice:
+      type: "string"
+      description: "User selection when multiple app catalog matches exist"
+      default: null
+    namespace_discovery_output:
       type: "dict"
-      description: "Checks for OpenShift Virtualization + MTV + storage/network context"
+      description: "Raw discovery output from OpenShift MCP tools for the selected namespace"
       default: null
-    ova_inputs:
-      type: "dict"
-      description: "User-provided inputs for OVA-on-NFS import (NFS, OVA path, target namespace, etc.)"
-      default: null
-    migration_plan:
-      type: "dict"
-      description: "Generated step-by-step migration plan following Red Hat 3-step workflow"
-      default: null
-    retry_count:
-      type: "integer"
-      description: "Generic retry counter"
-      default: 0
+
     _should_return_to_routing:
       type: "boolean"
       description: "Flag to indicate task completion and return to routing agent"
       default: false
 
 states:
-  # State 0: Discover workloads in cluster (apps + VMs) using OpenShift MCP
-  discover_cluster:
+  lookup_app:
+    type: "llm_processor"
+    temperature: 0.2
+    allowed_tools: ["search_app_catalog"]
+    prompt: |
+      You are a helpful app migration assistant.
+
+      CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently and present only the results to the user.
+
+      Your task: identify ONE unique application entry from the app catalog using the user's message.
+
+      REQUIRED TOOL CALL:
+      - Call: search_app_catalog(q=..., limit=50, offset=0)
+      - Choose a good substring query (q) based on the user's message (app_id, app name, namespace, source cluster, destination cluster).
+
+      After the tool returns results:
+      - Build a UNIQUE set of tuples across:
+        (app_id, app_name, namespace, source_cluster, destination_cluster)
+
+      Determine uniqueness:
+      - If the unique tuple set is empty: ask for a more specific query.
+      - If it has exactly 1 tuple: proceed.
+      - If it has more than 1 tuple: ask the user to select one.
+
+      CRITICAL OUTPUT FORMAT (MUST MATCH EXACTLY):
+
+      If 0 matches:
+      STATUS: NONE
+      MESSAGE: I couldn’t find any matching apps in the catalog. Please provide one of: app_id, app name, namespace, source cluster, or destination cluster.
+
+      If exactly 1 match:
+      STATUS: UNIQUE
+      APP_ID: <app_id>
+      APP_NAME: <app_name>
+      NAMESPACE: <namespace>
+      SOURCE_CLUSTER: <source_cluster>
+      DESTINATION_CLUSTER: <destination_cluster>
+
+      If multiple matches:
+      STATUS: MULTIPLE
+      OPTIONS:
+      1) app_id=<...> | app_name=<...> | namespace=<...> | source_cluster=<...> | destination_cluster=<...>
+      2) ...
+      (show up to 15 options max, unique tuples only)
+      MESSAGE: Reply with the option number (1-15) or the app_id to continue.
+    transitions:
+      success: "waiting_app_query" # overridden by response_analysis transitions below
+    data_storage:
+      app_lookup_results: "llm_response"
+    response_analysis:
+      conditions:
+        - name: "unique"
+          trigger_phrases: ["STATUS: UNIQUE"]
+          actions:
+            - type: "extract_data"
+              pattern: "APP_ID:\\s*(.+)"
+              field_name: "app_id"
+              source: "response"
+            - type: "extract_data"
+              pattern: "APP_NAME:\\s*(.+)"
+              field_name: "app_name"
+              source: "response"
+            - type: "extract_data"
+              pattern: "NAMESPACE:\\s*(.+)"
+              field_name: "namespace"
+              source: "response"
+            - type: "extract_data"
+              pattern: "SOURCE_CLUSTER:\\s*(.+)"
+              field_name: "source_cluster"
+              source: "response"
+            - type: "extract_data"
+              pattern: "DESTINATION_CLUSTER:\\s*(.+)"
+              field_name: "destination_cluster"
+              source: "response"
+            - type: "transition"
+              target: "discover_app"
+        - name: "multiple"
+          trigger_phrases: ["STATUS: MULTIPLE"]
+          actions:
+            - type: "transition"
+              target: "waiting_app_selection"
+        - name: "none"
+          trigger_phrases: ["STATUS: NONE"]
+          actions:
+            - type: "transition"
+              target: "waiting_app_query"
+      default_transition: "waiting_app_query"
+
+  waiting_app_query:
+    type: "waiting"
+    transitions:
+      user_input: "lookup_app"
+
+  waiting_app_selection:
+    type: "waiting"
+    transitions:
+      user_input: "classify_app_selection"
+
+  classify_app_selection:
+    type: "intent_classifier"
+    temperature: 0.2
+    allowed_tools: [""]
+    intent_prompt: |
+      The user said: "{user_input}"
+
+      The last app lookup response (with options) was:
+      {app_lookup_results.response}
+
+      Determine intent:
+      - RETURN_TO_ROUTER: user wants to go back/stop/cancel
+      - RETRY_LOOKUP: user wants to search again with a new query
+      - VALID_SELECTION: user selected an option number (1-15) or an app_id from the options
+      - INVALID_SELECTION: selection doesn't match any option
+
+      Respond with only: RETURN_TO_ROUTER, RETRY_LOOKUP, VALID_SELECTION, or INVALID_SELECTION
+    intent_actions:
+      RETURN_TO_ROUTER:
+        response: "task_complete_return_to_router"
+        data_storage:
+          _should_return_to_routing: true
+        next_state: "end"
+      RETRY_LOOKUP:
+        response: "Sure — please provide a new search term (app_id, app name, namespace, source cluster, or destination cluster)."
+        next_state: "waiting_app_query"
+      VALID_SELECTION:
+        next_state: "resolve_app_selection"
+        data_storage:
+          selected_app_choice: "{user_input}"
+      INVALID_SELECTION:
+        response: "I don’t see that selection in the options. Please reply with an option number (1-15) or an app_id from the list."
+        next_state: "waiting_app_selection"
+
+  resolve_app_selection:
+    type: "llm_processor"
+    temperature: 0.2
+    allowed_tools: [""]
+    prompt: |
+      The user selected: "{selected_app_choice}"
+
+      Use ONLY the following options (do not invent anything):
+      {app_lookup_results.response}
+
+      If you can resolve the user's choice to exactly one option, output:
+      STATUS: UNIQUE
+      APP_ID: <app_id>
+      APP_NAME: <app_name>
+      NAMESPACE: <namespace>
+      SOURCE_CLUSTER: <source_cluster>
+      DESTINATION_CLUSTER: <destination_cluster>
+
+      If you cannot resolve uniquely, output:
+      STATUS: ERROR
+      MESSAGE: Please select one option number (1-15) or paste the exact app_id from the options list.
+    transitions:
+      success: "waiting_app_selection" # overridden by response_analysis transitions below
+    response_analysis:
+      conditions:
+        - name: "unique"
+          trigger_phrases: ["STATUS: UNIQUE"]
+          actions:
+            - type: "extract_data"
+              pattern: "APP_ID:\\s*(.+)"
+              field_name: "app_id"
+              source: "response"
+            - type: "extract_data"
+              pattern: "APP_NAME:\\s*(.+)"
+              field_name: "app_name"
+              source: "response"
+            - type: "extract_data"
+              pattern: "NAMESPACE:\\s*(.+)"
+              field_name: "namespace"
+              source: "response"
+            - type: "extract_data"
+              pattern: "SOURCE_CLUSTER:\\s*(.+)"
+              field_name: "source_cluster"
+              source: "response"
+            - type: "extract_data"
+              pattern: "DESTINATION_CLUSTER:\\s*(.+)"
+              field_name: "destination_cluster"
+              source: "response"
+            - type: "transition"
+              target: "discover_app"
+        - name: "error"
+          trigger_phrases: ["STATUS: ERROR"]
+          actions:
+            - type: "transition"
+              target: "waiting_app_selection"
+      default_transition: "waiting_app_selection"
+
+  discover_app:
     type: "llm_processor"
     temperature: 0.2
     allowed_tools:
-      # IMPORTANT:
-      # This repo does not currently ship an OpenShift MCP server, so these tool names
-      # are placeholders. Update them to match your OpenShift MCP server's exported tools.
-      - "oc_get_namespaces"
       - "oc_get_deployments"
       - "oc_get_statefulsets"
       - "oc_get_daemonsets"
@@ -72,335 +258,97 @@ states:
       - "oc_get_virtualmachines"
       - "oc_get_virtualmachineinstances"
     prompt: |
-      You are a helpful app migration assistant.
+      You have identified the application:
+      - app_id: {app_id}
+      - app_name: {app_name}
+      - namespace: {namespace}
+      - source_cluster: {source_cluster}
+      - destination_cluster: {destination_cluster}
 
       CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently and present only the results to the user.
 
-      CRITICAL SCOPE:
-      - You must create a migration workflow that follows Red Hat’s documented “Migrate your virtual application in 3 steps” flow:
-        1) Set up NFS server (host OVA)
-        2) Prepare for migration (MTV operator)
-        3) Create a migration plan
-      - First, discover what applications are running in the OpenShift cluster using OpenShift MCP tools.
+      Your task: discover the resources in the selected namespace using OpenShift MCP tools.
 
-      DISCOVERY RULES:
+      RULES:
       - Do NOT read or output Secret data. Do NOT fetch secret values. If you must reference secrets, only mention names and namespaces.
-      - Prefer non-system namespaces. Exclude: kube-*, openshift-*, default, knative-*, istio-* unless the user asks otherwise.
-      - Keep results bounded: if there are many namespaces/workloads, return the top ~30 workloads total and clearly state it is a partial view.
+      - Keep output bounded: if there are many resources, show the top ~50 total items and clearly state it is a partial view.
 
-      REQUIRED TOOL FLOW:
-      1) List namespaces.
-      2) For each candidate namespace, list:
-         - Deployments, StatefulSets, DaemonSets
-         - Services, Routes/Ingresses
-         - PVCs
-         - OpenShift Virtualization: VirtualMachines and VirtualMachineInstances (if present)
+      REQUIRED TOOL FLOW (use the namespace {namespace}):
+      - List Deployments, StatefulSets, DaemonSets
+      - List Services and Routes/Ingresses (show hostnames if present)
+      - List PVCs
+      - If present, list OpenShift Virtualization resources: VirtualMachines and VirtualMachineInstances
 
-      Output a single response to the user with:
-      - A concise “Discovery Summary” grouped by namespace, listing each workload kind/name and any exposed route/ingress hostnames (if present).
-      - Ask the user to choose ONE workload to migrate by replying with: "<namespace> <kind> <name>"
+      Output a single response with:
+      - App Context (the 5 fields above)
+      - Namespace Resource Summary (grouped by kind, with names)
+      - Exposures (route/ingress hostnames if any)
+
+      End by asking:
+      "Do you want to look up another app, re-run discovery, or return to the main router? (another / rediscover / router)"
     transitions:
-      success: "classify_discovery"
+      success: "waiting_post_discovery"
     data_storage:
-      discovery_output: "llm_response"
+      namespace_discovery_output: "llm_response"
 
-  classify_discovery:
-    type: "llm_processor"
-    temperature: 0.1
-    allowed_tools: [ "" ]
-    prompt: |
-      Analyze this discovery output: "{discovery_output.response}"
-
-      Classify as:
-      - SUCCESS: contains namespaces and at least one workload (Deployment/StatefulSet/DaemonSet/VM)
-      - EMPTY: contains no meaningful workloads
-      - ERROR: tool failure, permission failure, or unclear response
-
-      Respond with only: SUCCESS, EMPTY, or ERROR
-    response_analysis:
-      conditions:
-        - name: "success"
-          trigger_phrases: ["SUCCESS"]
-          actions:
-            - type: "set_field"
-              field_name: "discovery_status"
-              value: "SUCCESS"
-            - type: "transition"
-              target: "waiting_workload_selection"
-        - name: "empty"
-          trigger_phrases: ["EMPTY"]
-          actions:
-            - type: "set_field"
-              field_name: "discovery_status"
-              value: "EMPTY"
-            - type: "add_message"
-              message: "I didn’t find any non-system workloads to migrate. If you tell me the namespace (or if I should include system namespaces), I can re-run discovery."
-            - type: "transition"
-              target: "waiting_workload_selection"
-        - name: "error"
-          trigger_phrases: ["ERROR"]
-          actions:
-            - type: "set_field"
-              field_name: "discovery_status"
-              value: "ERROR"
-            - type: "add_message"
-              message: "I hit an issue discovering workloads in the cluster (permissions/tooling). If you confirm I should retry and which namespaces to target, I can try again."
-            - type: "transition"
-              target: "waiting_workload_selection"
-      default_transition: "waiting_workload_selection"
-
-  waiting_workload_selection:
+  waiting_post_discovery:
     type: "waiting"
     transitions:
-      user_input: "classify_workload_selection"
+      user_input: "post_discovery_intent"
 
-  classify_workload_selection:
+  post_discovery_intent:
     type: "intent_classifier"
     temperature: 0.2
-    allowed_tools: [ "" ]
+    allowed_tools: [""]
     intent_prompt: |
       The user said: "{user_input}"
 
-      Determine intent:
-      - RETURN_TO_ROUTER: user wants to go back/stop/cancel
-      - RETRY_DISCOVERY: user asks to retry discovery / include more namespaces / change filters
-      - VALID_SELECTION: user provided "<namespace> <kind> <name>"
-      - INVALID_SELECTION: nonsense / not enough info
+      They were asked: another / rediscover / router.
 
-      Respond with only: RETURN_TO_ROUTER, RETRY_DISCOVERY, VALID_SELECTION, or INVALID_SELECTION
-    intent_actions:
-      RETURN_TO_ROUTER:
-        response: "task_complete_return_to_router"
-        data_storage:
-          _should_return_to_routing: true
-        next_state: "end"
-      RETRY_DISCOVERY:
-        next_state: "discover_cluster"
-      VALID_SELECTION:
-        next_state: "fetch_selected_workload_details"
-        data_storage:
-          selected_workload: "{user_input}"
-      INVALID_SELECTION:
-        response: "Please choose ONE workload in this format: <namespace> <kind> <name> (example: my-ns Deployment my-app). Or tell me ‘retry discovery’ with namespaces to include."
-        next_state: "waiting_workload_selection"
-
-  fetch_selected_workload_details:
-    type: "llm_processor"
-    temperature: 0.2
-    allowed_tools:
-      # Placeholder tool names — align with your OpenShift MCP server implementation.
-      - "oc_get_deployment"
-      - "oc_get_statefulset"
-      - "oc_get_daemonset"
-      - "oc_get_virtualmachine"
-      - "oc_get_services"
-      - "oc_get_routes"
-      - "oc_get_ingresses"
-      - "oc_get_pvcs"
-    prompt: |
-      The user selected: "{selected_workload}"
-
-      CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently and present only the results to the user.
-
-      Parse the selection into: namespace, kind, name.
-      Then fetch:
-      - The workload object (based on kind)
-      - Related Services, Routes/Ingresses, PVCs in that namespace
-
-      Output to the user:
-      - “Selected Workload Details” (kind/name/namespace, image(s) if available, replicas if available)
-      - “Exposures” (route/ingress hostnames if any)
-      - “Storage” (PVC names + storage classes if available)
-
-      Then ask: “Next I’ll confirm prerequisites (OpenShift Virtualization + MTV + NFS/OVA) and produce the step-by-step migration plan. Do you want to proceed?” (yes/no)
-    transitions:
-      success: "waiting_proceed_prereqs"
-    data_storage:
-      selected_workload_details: "llm_response"
-
-  waiting_proceed_prereqs:
-    type: "waiting"
-    transitions:
-      user_input: "proceed_prereqs_intent"
-
-  proceed_prereqs_intent:
-    type: "intent_classifier"
-    temperature: 0.2
-    allowed_tools: [ "" ]
-    intent_prompt: |
-      The user was asked if they want to proceed with prerequisites check and migration planning. They said: "{user_input}"
-
-      Classify as:
+      Classify intent:
       - RETURN_TO_ROUTER
-      - YES
-      - NO
+      - ANOTHER_APP
+      - REDISCOVER
       - UNCLEAR
 
-      Respond with only: RETURN_TO_ROUTER, YES, NO, or UNCLEAR
+      Respond with only: RETURN_TO_ROUTER, ANOTHER_APP, REDISCOVER, or UNCLEAR
     intent_actions:
       RETURN_TO_ROUTER:
         response: "task_complete_return_to_router"
         data_storage:
           _should_return_to_routing: true
         next_state: "end"
-      "YES":
-        next_state: "check_prerequisites"
-      "NO":
-        response: "Okay—if you want, you can pick a different workload to analyze, or tell me what you want to do next."
-        next_state: "waiting_workload_selection"
-      "UNCLEAR":
-        response: "Please confirm: do you want me to proceed with prerequisites checks and the step-by-step migration plan? (yes/no)"
-        next_state: "waiting_proceed_prereqs"
-
-  # State 1: Check prerequisites (OpenShift Virtualization + MTV), then ask for OVA/NFS inputs.
-  check_prerequisites:
-    type: "llm_processor"
-    temperature: 0.2
-    allowed_tools:
-      # Placeholder tool names — align with your OpenShift MCP server implementation.
-      - "oc_get_cluster_version"
-      - "oc_get_storageclasses"
-      - "oc_get_subscriptions"
-      - "oc_get_csvs"
-    prompt: |
-      CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently and present only the results.
-
-      Check and summarize prerequisites for the Red Hat OVA->OpenShift Virtualization workflow:
-      - OpenShift Virtualization installed (operator/CSV/subscription presence)
-      - Migration Toolkit for Virtualization (MTV) installed (operator/CSV/subscription presence)
-      - Identify storage classes (for storage mapping)
-      - Basic cluster context (version)
-
-      Then ask the user for the required inputs to follow the Red Hat “3 steps” workflow:
-      1) NFS server details (hostname/IP, export path)
-      2) OVA file path on NFS (exact)
-      3) Target namespace/project for the VM
-      4) Target network (default pod network vs additional network if applicable)
-      5) Target storage class preference
-
-      Output format:
-      - Prerequisites Check: READY / NOT READY (with bullet reasons)
-      - Then a short numbered list of the inputs you need from the user (1–5 above).
-    transitions:
-      success: "waiting_ova_inputs"
-    data_storage:
-      prerequisites_check: "llm_response"
-
-  waiting_ova_inputs:
-    type: "waiting"
-    transitions:
-      user_input: "capture_ova_inputs"
-
-  capture_ova_inputs:
-    type: "llm_processor"
-    temperature: 0.3
-    allowed_tools: [ "" ]
-    prompt: |
-      The user provided these inputs: "{user_input}"
-
-      Extract and store:
-      - nfs_server
-      - nfs_export_path
-      - ova_path
-      - target_namespace
-      - target_network
-      - target_storageclass
-
-      If any are missing, ask only for the missing ones (numbered).
-      If all are present, confirm them back to the user in a short bullet list and then generate the step-by-step migration plan following Red Hat’s 3-step workflow:
-      Step 1: Set up NFS server (host OVA)
-      Step 2: Prepare for migration (MTV operator)
-      Step 3: Create a migration plan
-
-      CRITICAL: Do not include any hidden reasoning. Provide only the requested output.
-    transitions:
-      success: "generate_migration_plan"
-    data_storage:
-      ova_inputs: "llm_response"
-
-  # State 2: Produce the step-by-step plan (the core deliverable)
-  generate_migration_plan:
-    type: "llm_processor"
-    temperature: 0.3
-    allowed_tools: [ "" ]
-    prompt: |
-      Use the following context:
-      - Selected workload details: {selected_workload_details.response}
-      - Prerequisites check: {prerequisites_check.response}
-      - OVA/NFS inputs: {ova_inputs.response}
-
-      Generate a STEP-BY-STEP migration process that follows the Red Hat “Migrate your virtual application in 3 steps” workflow:
-      1) Set up NFS server (host OVA)
-      2) Prepare for migration (MTV operator)
-      3) Create a migration plan
-
-      CRITICAL OUTPUT REQUIREMENTS:
-      - Use clear numbered steps with sub-steps.
-      - Include what the user must verify at each step and what “done” looks like.
-      - Include where the user should configure storage mapping + network mapping as part of the plan creation.
-      - Include a short “Post-migration validation checklist” at the end.
-
-      End with: “Would you like me to tailor this plan for a specific environment (dev/test/prod) or add rollback steps?” (yes/no)
-    transitions:
-      success: "waiting_post_plan_input"
-    data_storage:
-      migration_plan: "llm_response"
-
-  waiting_post_plan_input:
-    type: "waiting"
-    transitions:
-      user_input: "classify_post_plan_intent"
-
-  classify_post_plan_intent:
-    type: "intent_classifier"
-    temperature: 0.2
-    allowed_tools: [ "" ]
-    intent_prompt: |
-      The user responded after receiving the migration plan: "{user_input}"
-
-      Classify as:
-      - RETURN_TO_ROUTER: user is done / wants to go back
-      - YES: user wants refinements (env tailoring / rollback / deeper steps)
-      - NO: user is done
-      - UNCLEAR
-
-      Respond with only: RETURN_TO_ROUTER, YES, NO, or UNCLEAR
-    intent_actions:
-      RETURN_TO_ROUTER:
-        response: "task_complete_return_to_router"
+      ANOTHER_APP:
+        response: "Okay — what app should I look up? You can provide app_id, app name, namespace, source cluster, or destination cluster."
         data_storage:
-          _should_return_to_routing: true
-        next_state: "end"
-      "YES":
-        prompt: |
-          Ask ONE clarifying question before refining the plan:
-          - Which environment (dev/test/prod)?
-          - Any downtime constraints?
-          - Any specific network/storage requirements?
-          Then say you will regenerate the plan after they answer.
-        next_state: "waiting_post_plan_input"
-      "NO":
-        response: "task_complete_return_to_router"
-        data_storage:
-          _should_return_to_routing: true
-        next_state: "end"
-      "UNCLEAR":
-        response: "Do you want me to refine the plan (dev/test/prod tailoring or rollback steps), or are you done? (refine/done)"
-        next_state: "waiting_post_plan_input"
+          app_id: null
+          app_name: null
+          namespace: null
+          source_cluster: null
+          destination_cluster: null
+          selected_app_choice: null
+          app_lookup_results: null
+          namespace_discovery_output: null
+        next_state: "waiting_app_query"
+      REDISCOVER:
+        next_state: "discover_app"
+      UNCLEAR:
+        response: "Please reply with one of: another / rediscover / router"
+        next_state: "waiting_post_discovery"
 
   end:
     type: "terminal"
     reset_behavior:
-      reset_state: "discover_cluster"
+      reset_state: "lookup_app"
       clear_data:
         - "messages"
         - "current_state"
-        - "discovery_output"
-        - "discovery_status"
-        - "selected_workload"
-        - "selected_workload_details"
-        - "prerequisites_check"
-        - "ova_inputs"
-        - "migration_plan"
-        - "retry_count"
+        - "app_id"
+        - "app_name"
+        - "namespace"
+        - "source_cluster"
+        - "destination_cluster"
+        - "app_lookup_results"
+        - "selected_app_choice"
+        - "namespace_discovery_output"
         # NOTE: _should_return_to_routing is NOT cleared here; it must persist until session manager detects it.

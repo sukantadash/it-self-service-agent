@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "authoritative_user_id": "alice.johnson@company.com",
+    "description": "Type-A migration: broad lookup then user cancels/returns to router during selection step (exercises RETURN_TO_ROUTER intent in selection classifier)."
+  },
+  "conversation": [
+    {
+      "role": "user",
+      "content": "I need app migration to OpenShift Virtualization (MTV). Search for 'orders'."
+    },
+    {
+      "role": "user",
+      "content": "cancel"
+    }
+  ]
+}
+

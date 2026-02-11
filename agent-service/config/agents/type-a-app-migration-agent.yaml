@@ -25,13 +25,15 @@ sampling_params:
     top_p: 0.95
   max_tokens: 2200
 mcp_servers:
-  # OpenShift MCP (required for cluster discovery + prerequisite checks).
-  # NOTE: This repo currently only ships the ServiceNow MCP server; you will need
-  # to deploy an OpenShift MCP server at this URI (and ensure its tool names
-  # match what the workflow prompt expects).
+  # OpenShift MCP (required for in-namespace resource discovery).
   - name: "openshift"
-    uri: "http://ocp-mcp-server.llama-stack.svc.cluster.local:8000/mcp"
+    uri: "https://ocp-mcp-server-llama-stack.apps.cluster-5n8tc.5n8tc.sandbox3547.opentlc.com/mcp"
     require_approval: "never"
+  # App catalog MCP (read-only search over app catalog).
+  - name: "app-migration-utility"
+    uri: "https://app-migration-utility-mcp-app-migration-utility.apps.cluster-5n8tc.5n8tc.sandbox3547.opentlc.com/mcp"
+    require_approval: "never"
+    allowed_tools: ["search_app_catalog", "list_app_catalog"]
   - name: "snow"
     uri: "http://mcp-self-service-agent-snow.it-self-service-agent.svc.cluster.local:8000/mcp"
     require_approval: "never"

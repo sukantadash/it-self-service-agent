@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "authoritative_user_id": "alice.johnson@company.com",
+    "description": "Type-A migration: start with vague query (often NONE/MULTIPLE), then retry with a more specific app hint. Edit the query terms to match your app catalog."
+  },
+  "conversation": [
+    {
+      "role": "user",
+      "content": "I need help with a Type-A application migration (OVA -> OpenShift Virtualization using MTV)."
+    },
+    {
+      "role": "user",
+      "content": "Search the app catalog for: payments"
+    },
+    {
+      "role": "user",
+      "content": "Try a different search: namespace=payments-dev"
+    }
+  ]
+}
+

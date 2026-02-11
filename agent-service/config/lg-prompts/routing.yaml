@@ -66,6 +66,13 @@ states:
       - "I want to refresh my laptop"
       - "hardware refresh"
 
+      Examples of TYPE_A_MIGRATION requests:
+      - "I need to migrate my app to OpenShift Virtualization"
+      - "app migration"
+      - "migration"
+      - "I want to migrate my app"
+      - "application migration"
+      
       Respond with exactly one of: LAPTOP_REFRESH, EMAIL_CHANGE, TYPE_A_MIGRATION, or OTHER
     response_analysis:
       conditions:

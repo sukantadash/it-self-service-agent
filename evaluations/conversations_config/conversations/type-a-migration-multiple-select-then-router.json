@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "authoritative_user_id": "alice.johnson@company.com",
+    "description": "Type-A migration: broad query that often yields MULTIPLE, select option 1, then return to router after discovery. If your catalog returns NONE/UNIQUE, adjust the first message."
+  },
+  "conversation": [
+    {
+      "role": "user",
+      "content": "I want to migrate an OVA app to OpenShift Virtualization using MTV. Please help me migrate the app named 'inventory'."
+    },
+    {
+      "role": "user",
+      "content": "1"
+    },
+    {
+      "role": "user",
+      "content": "router"
+    }
+  ]
+}
+

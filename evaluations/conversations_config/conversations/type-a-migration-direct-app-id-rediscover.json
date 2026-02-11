@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "authoritative_user_id": "alice.johnson@company.com",
+    "description": "Type-A migration: try to force UNIQUE match by providing an app_id (edit APP_ID_HERE). Then ask rediscover and return to router."
+  },
+  "conversation": [
+    {
+      "role": "user",
+      "content": "Type-A migration help. app_id=APP_ID_HERE"
+    },
+    {
+      "role": "user",
+      "content": "rediscover"
+    },
+    {
+      "role": "user",
+      "content": "router"
+    }
+  ]
+}
+
