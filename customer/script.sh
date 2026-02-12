@@ -17,7 +17,10 @@ export DOCKERCONFIGJSON='{"auths":{"quay.io":{"auth":"<base64(username:token)>"}
 ./customer/script-images-repo.sh
 
 #build agent service image
-oc start-build bc/ssa-agent-service -n $NAMESPACE --from-dir=.
+oc start-build bc/ssa-agent-service -n $NAMESPACE --from-dir=. -F
+
+oc rollout restart deploy/self-service-agent-agent-service -n $NAMESPACE
+
 
 
 
@@ -131,3 +134,12 @@ export HF_TOKEN=1234
 oc exec -it deploy/self-service-agent-request-manager -n $NAMESPACE -- \
   python test/chat-responses-request-mgr.py \
   --user-id alice.johnson@company.com
+
+#evals
+export NAMESPACE=it-self-service-agent
+oc project $NAMESPACE
+cd it-self-service-agent-sukanta/evaluations
+uv venv
+source .venv/bin/activate
+uv sync
+python run_conversations.py --reset-conversation

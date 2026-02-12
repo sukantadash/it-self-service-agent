@@ -58,17 +58,20 @@ states:
   lookup_app:
     type: "llm_processor"
     temperature: 0.2
+    use_conversation_history: true
     allowed_tools: ["search_app_catalog"]
     prompt: |
       You are a helpful app migration assistant.
 
       CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently and present only the results to the user.
 
-      Your task: identify ONE unique application entry from the app catalog using the user's message.
+      Your task: identify ONE unique application entry from the app catalog using the user's most recent message in the conversation.
 
       REQUIRED TOOL CALL:
+      - You MUST call the tool named: search_app_catalog
       - Call: search_app_catalog(q=..., limit=50, offset=0)
-      - Choose a good substring query (q) based on the user's message (app_id, app name, namespace, source cluster, destination cluster).
+      - Choose a good substring query (q) based on the user's most recent message (app_id, app name, namespace, source cluster, destination cluster).
+      - CRITICAL: Do NOT write a fake tool call in text like [search_app_catalog(...)] — you must execute the actual tool call.
 
       After the tool returns results:
       - Build a UNIQUE set of tuples across:
@@ -130,7 +133,7 @@ states:
               field_name: "destination_cluster"
               source: "response"
             - type: "transition"
-              target: "discover_app"
+              target: "discover-app"
         - name: "multiple"
           trigger_phrases: ["STATUS: MULTIPLE"]
           actions:
@@ -146,7 +149,32 @@ states:
   waiting_app_query:
     type: "waiting"
     transitions:
-      user_input: "lookup_app"
+      user_input: "classify_app_query_intent"
+
+  classify_app_query_intent:
+    type: "intent_classifier"
+    temperature: 0.2
+    allowed_tools: [""]
+    intent_prompt: |
+      The user said: "{user_input}"
+
+      Determine intent:
+      - RETURN_TO_ROUTER: user wants to go back/stop/cancel
+      - QUERY: user is providing a search term / app identifier / namespace / cluster reference to look up
+      - UNCLEAR: user input doesn't contain a usable query
+
+      Respond with only: RETURN_TO_ROUTER, QUERY, or UNCLEAR
+    intent_actions:
+      RETURN_TO_ROUTER:
+        response: "task_complete_return_to_router"
+        data_storage:
+          _should_return_to_routing: true
+        next_state: "end"
+      QUERY:
+        next_state: "lookup_app"
+      UNCLEAR:
+        response: "Please provide a search term (app_id, app name, namespace, source cluster, or destination cluster). Or say 'cancel' to return to the router."
+        next_state: "waiting_app_query"
 
   waiting_app_selection:
     type: "waiting"
@@ -236,7 +264,7 @@ states:
               field_name: "destination_cluster"
               source: "response"
             - type: "transition"
-              target: "discover_app"
+              target: "discover-app"
         - name: "error"
           trigger_phrases: ["STATUS: ERROR"]
           actions:
@@ -244,7 +272,7 @@ states:
               target: "waiting_app_selection"
       default_transition: "waiting_app_selection"
 
-  discover_app:
+  discover-app:
     type: "llm_processor"
     temperature: 0.2
     allowed_tools:
@@ -331,7 +359,7 @@ states:
           namespace_discovery_output: null
         next_state: "waiting_app_query"
       REDISCOVER:
-        next_state: "discover_app"
+        next_state: "discover-app"
       UNCLEAR:
         response: "Please reply with one of: another / rediscover / router"
         next_state: "waiting_post_discovery"

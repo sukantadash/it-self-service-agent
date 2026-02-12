@@ -6,7 +6,7 @@
   "conversation": [
     {
       "role": "user",
-      "content": "I need app migration to OpenShift Virtualization (MTV). Search for 'orders'."
+      "content": "I need app migration to OpenShift Virtualization (MTV). Search for 'oom-test-app'."
     },
     {
       "role": "user",
