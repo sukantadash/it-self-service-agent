@@ -88,6 +88,12 @@ states:
       output EXACTLY:
       Q: NONE
 
+      CRITICAL: Extract ONLY the app name, ID, or namespace.
+      Do NOT include action words like "migrate", "migration", "help", "move", "transfer".
+      Example: "migrate payments" → Q: payments
+      Example: "I need help with hello-world" → Q: hello-world
+      Example: "migration help" → Q: NONE
+
       User message: "{last_user_message}"
 
       Output ONLY:
@@ -120,19 +126,31 @@ states:
     temperature: 0.2
     allowed_tools: ["search_app_catalog"]
     suppress_response: true
+    failure_transition: "waiting_app_query"  # Graceful fallback on empty/error responses
     prompt: |
       You are an app migration assistant.
 
-      CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently.
+      CRITICAL: Execute tool calls silently. Do not announce them.
 
-      Execute:
-      search_app_catalog(q="{app_search_q}", limit=50, offset=0)
+      Search hint (may be empty): {app_search_q}
+      Latest user message: "{last_user_message}"
+
+      Call search_app_catalog with:
+      - q = the Search hint if it is non-empty; otherwise use the Latest user message
+      - limit=50
+      - offset=0
 
       After the tool returns, output a normalized candidate list (unique tuples only).
-      - If none found, output exactly: CANDIDATES: NONE
-      - Otherwise output:
+
+      CRITICAL: If the tool returns null, empty, or no results, you MUST output exactly:
+      CANDIDATES: NONE
+      Do NOT return an empty response.
+
+      If results exist, output:
         CANDIDATES:
         1) app_id=<...> | app_name=<...> | namespace=<...> | source_cluster=<...> | destination_cluster=<...>
+        2) ...
+      Max 50 candidates. Do not invent values.
     transitions:
       success: "format_lookup_status"  # Requirement State 3
     data_storage:
@@ -183,15 +201,15 @@ states:
           trigger_phrases: ["I've located", "(ID:"]
           actions:
             - type: "extract_data"
-              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              pattern: "I've located\\s+(.+?)\\s*\\(ID:"
               field_name: "app_name"
               source: "response"
             - type: "extract_data"
-              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              pattern: "\\(ID:\\s*([^\\)]+)\\)"
               field_name: "app_id"
               source: "response"
             - type: "extract_data"
-              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              pattern: "in namespace\\s+([^\\.]+)\\."
               field_name: "namespace"
               source: "response"
             - type: "transition"
@@ -202,7 +220,7 @@ states:
             - type: "transition"
               target: "waiting_app_selection"  # Requirement State 6
         - name: "none"
-          trigger_phrases: ["I couldn’t find any matching apps", "I couldn't find any matching apps"]
+          trigger_phrases: ["I couldn't find any matching apps", "I couldn't find any matching apps"]
           actions:
             - type: "transition"
               target: "waiting_app_query"  # Requirement State 4
@@ -232,9 +250,9 @@ states:
 
       Respond with only: YES, NO, RETURN_TO_ROUTER, or UNCLEAR
     intent_actions:
-      YES:
+      "YES":
         next_state: "discover_workloads"
-      NO:
+      "NO":
         response: "No problem. Please provide the next Application Name, App ID, or Namespace you want to look up."
         next_state: "waiting_app_query"
       RETURN_TO_ROUTER:
@@ -361,15 +379,15 @@ states:
           trigger_phrases: ["I've located", "(ID:"]
           actions:
             - type: "extract_data"
-              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              pattern: "I've located\\s+(.+?)\\s*\\(ID:"
               field_name: "app_name"
               source: "response"
             - type: "extract_data"
-              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              pattern: "\\(ID:\\s*([^\\)]+)\\)"
               field_name: "app_id"
               source: "response"
             - type: "extract_data"
-              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              pattern: "in namespace\\s+([^\\.]+)\\."
               field_name: "namespace"
               source: "response"
             - type: "transition"
@@ -394,7 +412,7 @@ states:
   # ---------------------------
   discover_workloads:
     type: "llm_processor"
-    temperature: 0.2
+    temperature: 0.0
     allowed_tools: ["resources_list"]
     suppress_response: true
     prompt: |
@@ -408,7 +426,17 @@ states:
       - resources_list(apiVersion="apps/v1", kind="StatefulSet", namespace="{namespace}")
       - resources_list(apiVersion="apps/v1", kind="DaemonSet", namespace="{namespace}")
 
-      Then output ONLY the names of the resources found, grouped by kind. Do not invent values.
+      ABSOLUTELY CRITICAL — ZERO HALLUCINATION POLICY:
+      - You MUST only report resource names that appear in the ACTUAL tool output.
+      - If a tool call returns empty, null, or no items, report that kind as NONE.
+      - Do NOT guess, infer, or invent resource names. Not even plausible-sounding ones.
+      - Do NOT echo back tool call syntax as output.
+
+      Output format (use EXACTLY this structure):
+      WORKLOADS:
+      Deployments: <name1>, <name2> OR Deployments: NONE
+      StatefulSets: <name1> OR StatefulSets: NONE
+      DaemonSets: <name1> OR DaemonSets: NONE
     transitions:
       success: "discover_networking"  # Requirement State 11
     data_storage:
@@ -419,7 +447,7 @@ states:
   # ---------------------------
   discover_networking:
     type: "llm_processor"
-    temperature: 0.2
+    temperature: 0.0
     allowed_tools: ["resources_list"]
     suppress_response: true
     prompt: |
@@ -431,7 +459,17 @@ states:
       CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently.
       CRITICAL: Do NOT fetch or output Secret data.
 
-      Output the names and hostnames for these resources (if present). Do not fetch Secret data.
+      ABSOLUTELY CRITICAL — ZERO HALLUCINATION POLICY:
+      - You MUST only report resource names that appear in the ACTUAL tool output.
+      - If a tool call returns empty, null, no items, or errors, report that kind as NONE.
+      - Do NOT guess, infer, or invent resource names or hostnames.
+      - Do NOT echo back tool call syntax as output.
+
+      Output format (use EXACTLY this structure):
+      NETWORKING:
+      Services: <name1>, <name2> OR Services: NONE
+      Routes: <name1> (host: <hostname>) OR Routes: NONE
+      Ingresses: <name1> (host: <hostname>) OR Ingresses: NONE
     transitions:
       success: "discover_storage"  # Requirement State 12
     data_storage:
@@ -442,7 +480,7 @@ states:
   # ---------------------------
   discover_storage:
     type: "llm_processor"
-    temperature: 0.2
+    temperature: 0.0
     allowed_tools: ["resources_list"]
     suppress_response: true
     prompt: |
@@ -452,7 +490,14 @@ states:
       CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently.
       CRITICAL: Do NOT fetch or output Secret data.
 
-      List the names of the PVCs found. If none, state exactly: STORAGE: NONE
+      ABSOLUTELY CRITICAL — ZERO HALLUCINATION POLICY:
+      - You MUST only report PVC names that appear in the ACTUAL tool output.
+      - If the tool returns empty, null, or no items, you MUST output exactly: STORAGE: NONE
+      - Do NOT guess, infer, or invent PVC names.
+      - Do NOT echo back tool call syntax as output.
+
+      Output format:
+      STORAGE: <pvc-name-1>, <pvc-name-2> OR STORAGE: NONE
     transitions:
       success: "summarize_discovery"  # Requirement State 13
     data_storage:
@@ -463,17 +508,26 @@ states:
   # ---------------------------
   summarize_discovery:
     type: "llm_processor"
-    temperature: 0.2
+    temperature: 0.1
     allowed_tools: [""]
     prompt: |
       You have discovered the following for App "{app_name}" (ID: {app_id}) in namespace "{namespace}":
 
-      Workloads: {discovery_workloads.response}
-      Network: {discovery_network.response}
-      Storage: {discovery_storage.response}
+      {discovery_workloads.response}
+      {discovery_network.response}
+      {discovery_storage.response}
 
-      Summarize this discovery conversationally for the user. Mention the App context and the OpenShift resources found.
-      End by asking: "Do you want to look up another app, re-run discovery, or return to the main menu?"
+      CRITICAL — ZERO HALLUCINATION POLICY:
+      - Only mention resources that are EXPLICITLY listed above by name.
+      - If a category says "NONE", state clearly that no resources of that type were found.
+      - Do NOT add details, descriptions, or purposes for resources (e.g., do NOT say "likely used for logging").
+      - Do NOT invent or assume resources exist. Only report what is listed above.
+      - Do NOT describe what Services, Ingresses, or PVCs might do. Just list them.
+
+      Summarize for the user in a structured format:
+      1. Start with: "Here is the resource discovery summary for <app_name> (ID: <app_id>) in namespace <namespace>:"
+      2. List each category with the exact resource names found, or "None found" if NONE.
+      3. End by asking: "Do you want to look up another app, re-run discovery, or return to the main menu?"
     transitions:
       success: "waiting_post_discovery"  # Requirement State 9
 

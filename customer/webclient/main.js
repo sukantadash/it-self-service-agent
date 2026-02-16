@@ -5,7 +5,7 @@ const STORAGE_KEYS = {
 };
 
 const DEFAULT_RM_URL = "http://localhost:8080";
-const INITIAL_MESSAGE = "please introduce yourself and tell me how you can help";
+const INITIAL_MESSAGE = "Tell me how you can help";
 
 function $(id) {
   const el = document.getElementById(id);

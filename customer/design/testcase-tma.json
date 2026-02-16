@@ -1,91 +1,526 @@
 [
     {
-      "test_case_id": "TC-001",
-      "description": "Vague entry followed by successful unique identification",
+      "test_case_id": "TC-R01",
+      "description": "Routing Agent: Direct TYPE_A_MIGRATION classification and handoff to TMA",
+      "agent": "routing-agent",
+      "covers_states": ["greet_and_identify_need", "waiting_user_need", "classify_user_intent", "end"],
       "conversation": [
         {
           "turn": 1,
-          "user_input": "I want to migrate an application",
-          "expected_state": "State 1: derive_app_search_q",
-          "expected_assistance_response": "I can help you with your migration. To get started, please provide the Application Name, App ID, or its Namespace."
+          "user_input": "(session start — no user input, routing agent initiates)",
+          "expected_state_flow": "greet_and_identify_need (llm_processor) → waiting_user_need",
+          "expected_internal_logic": "LLM generates greeting; system pauses at waiting_user_need for user input",
+          "expected_assistance_response": "Hello! I'm the routing agent. I can help you with Type-A application migration (OVA → OpenShift Virtualization using MTV). What do you need help with today?"
         },
         {
           "turn": 2,
+          "user_input": "I want to migrate an application",
+          "expected_state_flow": "classify_user_intent (TYPE_A_MIGRATION) → end",
+          "expected_internal_logic": "Intent classified as TYPE_A_MIGRATION; routing_decision set to 'type-a-app-migration'; terminal state reached; session manager detects routing_decision and routes to TMA",
+          "expected_assistance_response": "type-a-app-migration",
+          "expected_routing_decision": "type-a-app-migration"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-R02",
+      "description": "Routing Agent: OTHER classification → clarification loop → TYPE_A_MIGRATION on retry",
+      "agent": "routing-agent",
+      "covers_states": ["greet_and_identify_need", "waiting_user_need", "classify_user_intent", "handle_other_request", "waiting_clarification", "end"],
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "(session start)",
+          "expected_state_flow": "greet_and_identify_need → waiting_user_need",
+          "expected_internal_logic": "Greeting generated; system waits for user input",
+          "expected_assistance_response": "Hello! I'm the routing agent. I can help you with Type-A application migration..."
+        },
+        {
+          "turn": 2,
+          "user_input": "help me please",
+          "expected_state_flow": "classify_user_intent (OTHER) → handle_other_request → waiting_clarification",
+          "expected_internal_logic": "Intent classified as OTHER; handle_other_request explains available services; system pauses at waiting_clarification",
+          "expected_assistance_response": "Your request doesn't clearly match our available services. We can currently help with Type-A application migration (OVA → OpenShift Virtualization using MTV). Could you clarify if you need help with application migration?"
+        },
+        {
+          "turn": 3,
+          "user_input": "I need to migrate my app",
+          "expected_state_flow": "classify_user_intent (TYPE_A_MIGRATION) → end",
+          "expected_internal_logic": "Re-classified as TYPE_A_MIGRATION; routing_decision set to 'type-a-app-migration'; session manager routes to TMA",
+          "expected_assistance_response": "type-a-app-migration",
+          "expected_routing_decision": "type-a-app-migration"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-R03",
+      "description": "Routing Agent: 'migrate payments' correctly classified as TYPE_A_MIGRATION (not OTHER)",
+      "agent": "routing-agent",
+      "covers_states": ["greet_and_identify_need", "waiting_user_need", "classify_user_intent", "end"],
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "(session start)",
+          "expected_state_flow": "greet_and_identify_need → waiting_user_need",
+          "expected_internal_logic": "Greeting generated; system waits",
+          "expected_assistance_response": "Hello! I'm the routing agent..."
+        },
+        {
+          "turn": 2,
+          "user_input": "migrate payments",
+          "expected_state_flow": "classify_user_intent (TYPE_A_MIGRATION) → end",
+          "expected_internal_logic": "Intent classified as TYPE_A_MIGRATION (not OTHER); 'migrate' + app name pattern correctly matched; routing_decision set to 'type-a-app-migration'; session manager routes to TMA; TMA derive_app_search_q will extract 'payments' (stripping verb 'migrate')",
+          "expected_assistance_response": "type-a-app-migration",
+          "expected_routing_decision": "type-a-app-migration"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-001",
+      "description": "Full E2E happy path: routing → TMA → vague entry → prompt for app → unique match → confirm discovery → discovery summary → return to router",
+      "agents": ["routing-agent", "type-a-app-migration"],
+      "covers_states": {
+        "routing-agent": ["greet_and_identify_need", "waiting_user_need", "classify_user_intent", "end"],
+        "type-a-app-migration": ["derive_app_search_q", "waiting_app_query", "classify_app_query_intent", "search_app_catalog_normalize", "format_lookup_status", "waiting_discovery_confirmation", "classify_discovery_confirmation", "discover_workloads", "discover_networking", "discover_storage", "summarize_discovery", "waiting_post_discovery", "classify_post_discovery_intent", "end"]
+      },
+      "conversation": [
+        {
+          "turn": 1,
+          "agent": "routing-agent",
+          "user_input": "(session start)",
+          "expected_state_flow": "greet_and_identify_need → waiting_user_need",
+          "expected_internal_logic": "Routing agent greets user",
+          "expected_assistance_response": "Hello! I'm the routing agent. I can help you with Type-A application migration (OVA → OpenShift Virtualization using MTV). What do you need help with today?"
+        },
+        {
+          "turn": 2,
+          "agent": "routing-agent → type-a-app-migration",
+          "user_input": "I want to migrate an application",
+          "expected_state_flow": "[Routing] classify_user_intent (TYPE_A_MIGRATION) → end → [Session Manager handoff] → [TMA] derive_app_search_q (Q: NONE) → waiting_app_query",
+          "expected_internal_logic": "Routing classifies TYPE_A_MIGRATION; routing_decision='type-a-app-migration'; session manager routes to TMA; TMA receives 'I want to migrate an application'; derive_app_search_q outputs Q: NONE (generic message); add_message fires",
+          "expected_assistance_response": "I can help you with your migration. To get started, please provide the Application Name, App ID, or its Namespace."
+        },
+        {
+          "turn": 3,
+          "agent": "type-a-app-migration",
           "user_input": "oom-test-app",
-          "expected_state": "State 3: format_lookup_status",
-          "expected_internal_logic": "STATUS: UNIQUE identified for oom-test-app",
+          "expected_state_flow": "classify_app_query_intent (QUERY) → derive_app_search_q (Q: oom-test-app) → search_app_catalog_normalize → format_lookup_status (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "Intent classified as QUERY; search term extracted; search_app_catalog tool called; 1 candidate returned; extract_data captures app_name='out memory app', app_id='oom-test-app', namespace='oom-test'",
           "expected_assistance_response": "I've located out memory app (ID: oom-test-app) in namespace oom-test. Should I proceed with the resource discovery for this application?"
+        },
+        {
+          "turn": 4,
+          "agent": "type-a-app-migration",
+          "user_input": "yes, go ahead",
+          "expected_state_flow": "classify_discovery_confirmation (YES) → discover_workloads → discover_networking → discover_storage → summarize_discovery → waiting_post_discovery",
+          "expected_internal_logic": "Intent classified as YES; resources_list MCP tool called 3 times for workloads (Deployment, StatefulSet, DaemonSet), 3 times for networking (Service, Route, Ingress), 1 time for storage (PVC); results summarized conversationally",
+          "expected_assistance_response": "[Summary of discovered Workloads, Network resources, and Storage for 'out memory app' in namespace oom-test]. Do you want to look up another app, re-run discovery, or return to the main menu?"
+        },
+        {
+          "turn": 5,
+          "agent": "type-a-app-migration",
+          "user_input": "that's all, thanks",
+          "expected_state_flow": "classify_post_discovery_intent (RETURN_TO_ROUTER) → end",
+          "expected_internal_logic": "Intent classified as RETURN_TO_ROUTER; _should_return_to_routing set to true; terminal state reached; session manager detects flag and routes back to routing agent",
+          "expected_assistance_response": "task_complete_return_to_router"
         }
       ]
     },
     {
       "test_case_id": "TC-002",
-      "description": "Disambiguation flow for 'payments' search",
+      "description": "Full E2E: routing → TMA → disambiguation flow → selection by number → confirm → discovery",
+      "agents": ["routing-agent", "type-a-app-migration"],
+      "covers_states": {
+        "routing-agent": ["greet_and_identify_need", "waiting_user_need", "classify_user_intent", "end"],
+        "type-a-app-migration": ["derive_app_search_q", "search_app_catalog_normalize", "format_lookup_status", "waiting_app_selection", "classify_app_selection", "resolve_app_selection", "waiting_discovery_confirmation", "classify_discovery_confirmation", "discover_workloads", "discover_networking", "discover_storage", "summarize_discovery"]
+      },
       "conversation": [
         {
           "turn": 1,
-          "user_input": "migrate payments",
-          "expected_state": "State 3: format_lookup_status",
-          "expected_internal_logic": "STATUS: MULTIPLE (payments-api vs legacy-payments)",
-          "expected_assistance_response": "I found multiple matches for that application. Which one should we proceed with?\n\n1) ID: payments-api | Name: payments-api | Namespace: payments | Cluster: api.apps.cluster-alpha.example.com\n2) ID: legacy-pay | Name: legacy-payments | Namespace: payments-old | Cluster: api.apps.cluster-beta.example.com\n\nPlease reply with the number (1 or 2) or the App ID."
+          "agent": "routing-agent",
+          "user_input": "(session start)",
+          "expected_state_flow": "greet_and_identify_need → waiting_user_need",
+          "expected_internal_logic": "Routing agent greets user",
+          "expected_assistance_response": "Hello! I'm the routing agent..."
         },
         {
           "turn": 2,
+          "agent": "routing-agent → type-a-app-migration",
+          "user_input": "migrate payments",
+          "expected_state_flow": "[Routing] classify_user_intent (TYPE_A_MIGRATION) → end → [Session Manager handoff] → [TMA] derive_app_search_q (Q: payments) → search_app_catalog_normalize → format_lookup_status (MULTIPLE) → waiting_app_selection",
+          "expected_internal_logic": "Routing classifies TYPE_A_MIGRATION; session manager routes to TMA; TMA derive_app_search_q strips verb 'migrate' and extracts 'payments'; search_app_catalog returns 2+ candidates; format_lookup_status detects multiple matches",
+          "expected_assistance_response": "I found multiple matches for that application. Which one should we proceed with?\n\n1) ID: payments-api | Name: payments-api | Namespace: payments | Cluster: api.apps.cluster-alpha.example.com\n2) ID: legacy-pay | Name: legacy-payments | Namespace: payments-old | Cluster: api.apps.cluster-beta.example.com\n\nPlease reply with the number (1 or 2) or the App ID."
+        },
+        {
+          "turn": 3,
+          "agent": "type-a-app-migration",
           "user_input": "1",
-          "expected_state": "State 8: resolve_app_selection",
-          "expected_internal_logic": "STATUS: UNIQUE resolved to payments-api",
+          "expected_state_flow": "classify_app_selection (VALID_SELECTION) → resolve_app_selection (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "Intent classified as VALID_SELECTION; selected_app_choice='1'; resolve_app_selection LLM resolves to payments-api; extract_data captures app_name='payments-api', app_id='payments-api', namespace='payments'",
           "expected_assistance_response": "I've located payments-api (ID: payments-api) in namespace payments. Should I proceed with the resource discovery for this application?"
+        },
+        {
+          "turn": 4,
+          "agent": "type-a-app-migration",
+          "user_input": "yes",
+          "expected_state_flow": "classify_discovery_confirmation (YES) → discover_workloads → discover_networking → discover_storage → summarize_discovery → waiting_post_discovery",
+          "expected_internal_logic": "Intent classified as YES; discovery pipeline executes for namespace 'payments'; results summarized",
+          "expected_assistance_response": "[Summary of discovered Workloads, Network resources, and Storage for 'payments-api' in namespace payments]. Do you want to look up another app, re-run discovery, or return to the main menu?"
         }
       ]
     },
     {
       "test_case_id": "TC-003",
-      "description": "Direct identification and full discovery summary",
+      "description": "Direct app name identification → confirm → full discovery summary",
+      "agent": "type-a-app-migration",
+      "covers_states": ["derive_app_search_q", "search_app_catalog_normalize", "format_lookup_status", "waiting_discovery_confirmation", "classify_discovery_confirmation", "discover_workloads", "discover_networking", "discover_storage", "summarize_discovery"],
       "conversation": [
         {
           "turn": 1,
           "user_input": "I need help with hello-world",
-          "expected_state": "State 3: format_lookup_status",
+          "expected_state_flow": "derive_app_search_q (Q: hello-world) → search_app_catalog_normalize → format_lookup_status (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "LLM extracts 'hello-world'; search_app_catalog returns 1 candidate; extract_data captures app_name='hello-world', app_id='hello-world', namespace='default'",
           "expected_assistance_response": "I've located hello-world (ID: hello-world) in namespace default. Should I proceed with the resource discovery for this application?"
         },
         {
           "turn": 2,
           "user_input": "Yes, please proceed",
-          "expected_state": "State 13: summarize_discovery",
-          "expected_internal_logic": "Execution of States 10, 11, 12",
-          "expected_assistance_response": "I have discovered the following for App 'hello-world' (ID: hello-world): [Summary of Workloads, Network, and Storage]. Would you like to look up another app, re-run this discovery, or return to the main menu?"
+          "expected_state_flow": "classify_discovery_confirmation (YES) → discover_workloads → discover_networking → discover_storage → summarize_discovery → waiting_post_discovery",
+          "expected_internal_logic": "Intent classified as YES; resources_list called for Deployments, StatefulSets, DaemonSets, Services, Routes, Ingresses, PVCs in namespace 'default'; summarize_discovery formats all results",
+          "expected_assistance_response": "[Summary of discovered Workloads, Network resources, and Storage for 'hello-world' in namespace default]. Do you want to look up another app, re-run discovery, or return to the main menu?"
         }
       ]
     },
     {
       "test_case_id": "TC-004",
-      "description": "Intent switch to different topic mid-search",
+      "description": "Intent switch to different topic (SWITCH_TASK) while waiting for app query",
+      "agent": "type-a-app-migration",
+      "covers_states": ["derive_app_search_q", "waiting_app_query", "classify_app_query_intent", "end"],
       "conversation": [
         {
           "turn": 1,
           "user_input": "migration help",
-          "expected_state": "State 4: waiting_app_query",
+          "expected_state_flow": "derive_app_search_q (Q: NONE) → waiting_app_query",
+          "expected_internal_logic": "LLM outputs 'Q: NONE' for generic message; add_message fires; system pauses at waiting_app_query",
           "expected_assistance_response": "I can help you with your migration. To get started, please provide the Application Name, App ID, or its Namespace."
         },
         {
           "turn": 2,
           "user_input": "Actually, I just need a laptop refresh",
-          "expected_state": "State 5: classify_app_query_intent",
-          "expected_internal_logic": "SWITCH_TASK detected; _should_return_to_routing set to true",
+          "expected_state_flow": "classify_app_query_intent (SWITCH_TASK) → end",
+          "expected_internal_logic": "Intent classified as SWITCH_TASK; _should_return_to_routing set to true; terminal state reached; session manager routes back to routing agent",
           "expected_assistance_response": "No problem! I'll connect you back with the routing agent so you can be directed to the laptop refresh specialist."
         }
       ]
     },
     {
       "test_case_id": "TC-005",
-      "description": "Post-discovery rediscovery request",
+      "description": "Post-discovery: user requests rediscovery of current app",
+      "agent": "type-a-app-migration",
+      "covers_states": ["classify_post_discovery_intent", "discover_workloads", "discover_networking", "discover_storage", "summarize_discovery", "waiting_post_discovery"],
+      "precondition": "System is at waiting_post_discovery after a completed discovery for an app (e.g., hello-world in namespace default). Fields app_name, app_id, namespace are populated.",
       "conversation": [
         {
           "turn": 1,
           "user_input": "please re-run the scan for the current app",
-          "expected_state": "State 14: classify_post_discovery_intent",
-          "expected_internal_logic": "REDISCOVER detected; transitioning to State 10",
-          "expected_assistance_response": "Understood. I am re-running the resource discovery scan for the current namespace. One moment..."
+          "expected_state_flow": "classify_post_discovery_intent (REDISCOVER) → discover_workloads → discover_networking → discover_storage → summarize_discovery → waiting_post_discovery",
+          "expected_internal_logic": "Intent classified as REDISCOVER; response message shown; discovery pipeline re-executes for same namespace; new summary generated",
+          "expected_assistance_response": "Understood. I am re-running the resource discovery scan for the current namespace. One moment... [Updated discovery summary]. Do you want to look up another app, re-run discovery, or return to the main menu?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-006",
+      "description": "No matches found → user retries with corrected query → unique match found",
+      "agent": "type-a-app-migration",
+      "covers_states": ["derive_app_search_q", "search_app_catalog_normalize", "format_lookup_status", "waiting_app_query", "classify_app_query_intent"],
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "migrate xyznonexistent",
+          "expected_state_flow": "derive_app_search_q (Q: xyznonexistent) → search_app_catalog_normalize → format_lookup_status (NONE) → waiting_app_query",
+          "expected_internal_logic": "LLM extracts 'xyznonexistent'; search_app_catalog returns 0 candidates; trigger phrase 'I couldn't find any matching apps' matched; transitions to waiting_app_query",
+          "expected_assistance_response": "I couldn't find any matching apps in the catalog. Please provide the Application Name, App ID, or Namespace."
+        },
+        {
+          "turn": 2,
+          "user_input": "hello-world",
+          "expected_state_flow": "classify_app_query_intent (QUERY) → derive_app_search_q (Q: hello-world) → search_app_catalog_normalize → format_lookup_status (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "Intent classified as QUERY; re-search finds 1 candidate; extract_data captures app_name='hello-world', app_id='hello-world', namespace='default'",
+          "expected_assistance_response": "I've located hello-world (ID: hello-world) in namespace default. Should I proceed with the resource discovery for this application?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-007",
+      "description": "Disambiguation: invalid selection → error feedback → valid selection",
+      "agent": "type-a-app-migration",
+      "covers_states": ["derive_app_search_q", "search_app_catalog_normalize", "format_lookup_status", "waiting_app_selection", "classify_app_selection", "resolve_app_selection"],
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "payments",
+          "expected_state_flow": "derive_app_search_q (Q: payments) → search_app_catalog_normalize → format_lookup_status (MULTIPLE) → waiting_app_selection",
+          "expected_internal_logic": "search_app_catalog returns multiple candidates; multiple match trigger fires",
+          "expected_assistance_response": "I found multiple matches for that application. Which one should we proceed with?\n\n1) ID: payments-api | Name: payments-api | Namespace: payments | Cluster: api.apps.cluster-alpha.example.com\n2) ID: legacy-pay | Name: legacy-payments | Namespace: payments-old | Cluster: api.apps.cluster-beta.example.com\n\nPlease reply with the number (1 or 2) or the App ID."
+        },
+        {
+          "turn": 2,
+          "user_input": "99",
+          "expected_state_flow": "classify_app_selection (INVALID_SELECTION) → waiting_app_selection",
+          "expected_internal_logic": "Intent classified as INVALID_SELECTION; error response shown; system loops back to waiting_app_selection",
+          "expected_assistance_response": "I don't see that selection in the options. Please reply with an option number (1-15) or an app_id from the list."
+        },
+        {
+          "turn": 3,
+          "user_input": "2",
+          "expected_state_flow": "classify_app_selection (VALID_SELECTION) → resolve_app_selection (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "Intent classified as VALID_SELECTION; selected_app_choice='2'; resolve_app_selection resolves to legacy-payments; extract_data captures app_name='legacy-payments', app_id='legacy-pay', namespace='payments-old'",
+          "expected_assistance_response": "I've located legacy-payments (ID: legacy-pay) in namespace payments-old. Should I proceed with the resource discovery for this application?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-008",
+      "description": "Discovery confirmation declined (NO) → user starts new search",
+      "agent": "type-a-app-migration",
+      "covers_states": ["derive_app_search_q", "search_app_catalog_normalize", "format_lookup_status", "waiting_discovery_confirmation", "classify_discovery_confirmation", "waiting_app_query", "classify_app_query_intent"],
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "oom-test-app",
+          "expected_state_flow": "derive_app_search_q (Q: oom-test-app) → search_app_catalog_normalize → format_lookup_status (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "1 candidate found; extract_data captures fields; system waits for confirmation",
+          "expected_assistance_response": "I've located out memory app (ID: oom-test-app) in namespace oom-test. Should I proceed with the resource discovery for this application?"
+        },
+        {
+          "turn": 2,
+          "user_input": "no, wrong app",
+          "expected_state_flow": "classify_discovery_confirmation (NO) → waiting_app_query",
+          "expected_internal_logic": "Intent classified as NO; response directs user to provide new search; system pauses at waiting_app_query",
+          "expected_assistance_response": "No problem. Please provide the next Application Name, App ID, or Namespace you want to look up."
+        },
+        {
+          "turn": 3,
+          "user_input": "hello-world",
+          "expected_state_flow": "classify_app_query_intent (QUERY) → derive_app_search_q (Q: hello-world) → search_app_catalog_normalize → format_lookup_status (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "New search for hello-world; 1 candidate returned; extract_data captures app_name='hello-world', app_id='hello-world', namespace='default'",
+          "expected_assistance_response": "I've located hello-world (ID: hello-world) in namespace default. Should I proceed with the resource discovery for this application?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-009",
+      "description": "UNCLEAR discovery confirmation → clarification prompt → user confirms YES",
+      "agent": "type-a-app-migration",
+      "covers_states": ["waiting_discovery_confirmation", "classify_discovery_confirmation"],
+      "precondition": "System is at waiting_discovery_confirmation after locating an app (e.g., oom-test-app).",
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "hmm maybe",
+          "expected_state_flow": "classify_discovery_confirmation (UNCLEAR) → waiting_discovery_confirmation",
+          "expected_internal_logic": "Intent classified as UNCLEAR; clarification response shown; system loops back to waiting_discovery_confirmation for retry",
+          "expected_assistance_response": "Please reply yes/no: should I proceed with the resource discovery for this application?"
+        },
+        {
+          "turn": 2,
+          "user_input": "yes",
+          "expected_state_flow": "classify_discovery_confirmation (YES) → discover_workloads → discover_networking → discover_storage → summarize_discovery → waiting_post_discovery",
+          "expected_internal_logic": "Intent classified as YES; discovery pipeline executes; results summarized",
+          "expected_assistance_response": "[Discovery summary]. Do you want to look up another app, re-run discovery, or return to the main menu?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-010",
+      "description": "Post-discovery: look up another app (ANOTHER_APP) — verifies state data is cleared",
+      "agent": "type-a-app-migration",
+      "covers_states": ["classify_post_discovery_intent", "waiting_app_query", "classify_app_query_intent", "derive_app_search_q", "search_app_catalog_normalize", "format_lookup_status"],
+      "precondition": "System is at waiting_post_discovery after a completed discovery for hello-world in namespace default.",
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "I want to look up a different app",
+          "expected_state_flow": "classify_post_discovery_intent (ANOTHER_APP) → waiting_app_query",
+          "expected_internal_logic": "Intent classified as ANOTHER_APP; all business fields (app_id, app_name, namespace, source_cluster, destination_cluster, app_search_q, app_catalog_candidates, app_lookup_results, selected_app_choice, discovery_workloads, discovery_network, discovery_storage) cleared to null; system pauses at waiting_app_query",
+          "expected_assistance_response": "Okay — please provide the next app name, app_id, or namespace to look up."
+        },
+        {
+          "turn": 2,
+          "user_input": "oom-test-app",
+          "expected_state_flow": "classify_app_query_intent (QUERY) → derive_app_search_q (Q: oom-test-app) → search_app_catalog_normalize → format_lookup_status (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "Fresh search cycle begins with cleared state; new extract_data populates app_name='out memory app', app_id='oom-test-app', namespace='oom-test'",
+          "expected_assistance_response": "I've located out memory app (ID: oom-test-app) in namespace oom-test. Should I proceed with the resource discovery for this application?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-011",
+      "description": "Return to router from disambiguation (app selection phase)",
+      "agent": "type-a-app-migration",
+      "covers_states": ["derive_app_search_q", "search_app_catalog_normalize", "format_lookup_status", "waiting_app_selection", "classify_app_selection", "end"],
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "payments",
+          "expected_state_flow": "derive_app_search_q (Q: payments) → search_app_catalog_normalize → format_lookup_status (MULTIPLE) → waiting_app_selection",
+          "expected_internal_logic": "Multiple candidates found; disambiguation list presented",
+          "expected_assistance_response": "I found multiple matches for that application. Which one should we proceed with?\n\n1) ID: payments-api | Name: payments-api | Namespace: payments | Cluster: api.apps.cluster-alpha.example.com\n2) ID: legacy-pay | Name: legacy-payments | Namespace: payments-old | Cluster: api.apps.cluster-beta.example.com\n\nPlease reply with the number (1 or 2) or the App ID."
+        },
+        {
+          "turn": 2,
+          "user_input": "cancel, go back",
+          "expected_state_flow": "classify_app_selection (RETURN_TO_ROUTER) → end",
+          "expected_internal_logic": "Intent classified as RETURN_TO_ROUTER; _should_return_to_routing set to true; terminal state reached",
+          "expected_assistance_response": "task_complete_return_to_router"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-012",
+      "description": "Return to router from discovery confirmation",
+      "agent": "type-a-app-migration",
+      "covers_states": ["derive_app_search_q", "search_app_catalog_normalize", "format_lookup_status", "waiting_discovery_confirmation", "classify_discovery_confirmation", "end"],
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "hello-world",
+          "expected_state_flow": "derive_app_search_q (Q: hello-world) → search_app_catalog_normalize → format_lookup_status (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "1 candidate found; fields extracted; system waits for discovery confirmation",
+          "expected_assistance_response": "I've located hello-world (ID: hello-world) in namespace default. Should I proceed with the resource discovery for this application?"
+        },
+        {
+          "turn": 2,
+          "user_input": "stop, return to router",
+          "expected_state_flow": "classify_discovery_confirmation (RETURN_TO_ROUTER) → end",
+          "expected_internal_logic": "Intent classified as RETURN_TO_ROUTER; _should_return_to_routing set to true; terminal state reached",
+          "expected_assistance_response": "No problem! I'll connect you back with the routing agent so you can be directed to the right specialist."
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-013",
+      "description": "Disambiguation: selection by app_id string instead of number",
+      "agent": "type-a-app-migration",
+      "covers_states": ["derive_app_search_q", "search_app_catalog_normalize", "format_lookup_status", "waiting_app_selection", "classify_app_selection", "resolve_app_selection"],
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "payments",
+          "expected_state_flow": "derive_app_search_q (Q: payments) → search_app_catalog_normalize → format_lookup_status (MULTIPLE) → waiting_app_selection",
+          "expected_internal_logic": "Multiple candidates returned; disambiguation list presented",
+          "expected_assistance_response": "I found multiple matches for that application. Which one should we proceed with?\n\n1) ID: payments-api | Name: payments-api | Namespace: payments | Cluster: api.apps.cluster-alpha.example.com\n2) ID: legacy-pay | Name: legacy-payments | Namespace: payments-old | Cluster: api.apps.cluster-beta.example.com\n\nPlease reply with the number (1 or 2) or the App ID."
+        },
+        {
+          "turn": 2,
+          "user_input": "legacy-pay",
+          "expected_state_flow": "classify_app_selection (VALID_SELECTION) → resolve_app_selection (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "Intent classified as VALID_SELECTION; selected_app_choice='legacy-pay'; resolve_app_selection resolves by app_id; extract_data captures app_name='legacy-payments', app_id='legacy-pay', namespace='payments-old'",
+          "expected_assistance_response": "I've located legacy-payments (ID: legacy-pay) in namespace payments-old. Should I proceed with the resource discovery for this application?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-014",
+      "description": "UNCLEAR query while waiting for app input → clarification → valid query",
+      "agent": "type-a-app-migration",
+      "covers_states": ["derive_app_search_q", "waiting_app_query", "classify_app_query_intent"],
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "help me migrate",
+          "expected_state_flow": "derive_app_search_q (Q: NONE) → waiting_app_query",
+          "expected_internal_logic": "Generic message; Q: NONE triggered; system prompts for specifics",
+          "expected_assistance_response": "I can help you with your migration. To get started, please provide the Application Name, App ID, or its Namespace."
+        },
+        {
+          "turn": 2,
+          "user_input": "uhhh",
+          "expected_state_flow": "classify_app_query_intent (UNCLEAR) → waiting_app_query",
+          "expected_internal_logic": "Intent classified as UNCLEAR; clarification response shown; system loops back to waiting_app_query",
+          "expected_assistance_response": "Please provide the app name, app_id, or namespace to search. Or say 'cancel' to return to the router."
+        },
+        {
+          "turn": 3,
+          "user_input": "oom-test-app",
+          "expected_state_flow": "classify_app_query_intent (QUERY) → derive_app_search_q (Q: oom-test-app) → search_app_catalog_normalize → format_lookup_status (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "Intent classified as QUERY; full search pipeline executes; unique match found",
+          "expected_assistance_response": "I've located out memory app (ID: oom-test-app) in namespace oom-test. Should I proceed with the resource discovery for this application?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-015",
+      "description": "Disambiguation: user wants to retry lookup with a different search term (RETRY_LOOKUP)",
+      "agent": "type-a-app-migration",
+      "covers_states": ["derive_app_search_q", "search_app_catalog_normalize", "format_lookup_status", "waiting_app_selection", "classify_app_selection", "waiting_app_query", "classify_app_query_intent"],
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "payments",
+          "expected_state_flow": "derive_app_search_q (Q: payments) → search_app_catalog_normalize → format_lookup_status (MULTIPLE) → waiting_app_selection",
+          "expected_internal_logic": "Multiple candidates found",
+          "expected_assistance_response": "I found multiple matches for that application. Which one should we proceed with?\n\n1) ID: payments-api | Name: payments-api | Namespace: payments | Cluster: api.apps.cluster-alpha.example.com\n2) ID: legacy-pay | Name: legacy-payments | Namespace: payments-old | Cluster: api.apps.cluster-beta.example.com\n\nPlease reply with the number (1 or 2) or the App ID."
+        },
+        {
+          "turn": 2,
+          "user_input": "none of these, let me search for something else",
+          "expected_state_flow": "classify_app_selection (RETRY_LOOKUP) → waiting_app_query",
+          "expected_internal_logic": "Intent classified as RETRY_LOOKUP; system transitions to waiting_app_query for fresh search",
+          "expected_assistance_response": null
+        },
+        {
+          "turn": 3,
+          "user_input": "hello-world",
+          "expected_state_flow": "classify_app_query_intent (QUERY) → derive_app_search_q (Q: hello-world) → search_app_catalog_normalize → format_lookup_status (UNIQUE) → waiting_discovery_confirmation",
+          "expected_internal_logic": "New search executes; unique match found",
+          "expected_assistance_response": "I've located hello-world (ID: hello-world) in namespace default. Should I proceed with the resource discovery for this application?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-016",
+      "description": "Post-discovery: UNCLEAR response → clarification → return to router",
+      "agent": "type-a-app-migration",
+      "covers_states": ["classify_post_discovery_intent", "waiting_post_discovery", "end"],
+      "precondition": "System is at waiting_post_discovery after a completed discovery.",
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "hmm not sure",
+          "expected_state_flow": "classify_post_discovery_intent (UNCLEAR) → waiting_post_discovery",
+          "expected_internal_logic": "Intent classified as UNCLEAR; clarification options presented; system loops back",
+          "expected_assistance_response": "Please reply with one of: another app / re-run discovery / return to router."
+        },
+        {
+          "turn": 2,
+          "user_input": "return to router",
+          "expected_state_flow": "classify_post_discovery_intent (RETURN_TO_ROUTER) → end",
+          "expected_internal_logic": "Intent classified as RETURN_TO_ROUTER; _should_return_to_routing set to true; terminal state reached",
+          "expected_assistance_response": "task_complete_return_to_router"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-017",
+      "description": "Return to router from waiting_app_query (explicit cancel)",
+      "agent": "type-a-app-migration",
+      "covers_states": ["derive_app_search_q", "waiting_app_query", "classify_app_query_intent", "end"],
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "migration",
+          "expected_state_flow": "derive_app_search_q (Q: NONE) → waiting_app_query",
+          "expected_internal_logic": "Generic message; Q: NONE triggered",
+          "expected_assistance_response": "I can help you with your migration. To get started, please provide the Application Name, App ID, or its Namespace."
+        },
+        {
+          "turn": 2,
+          "user_input": "cancel",
+          "expected_state_flow": "classify_app_query_intent (RETURN_TO_ROUTER) → end",
+          "expected_internal_logic": "Intent classified as RETURN_TO_ROUTER; _should_return_to_routing set to true; terminal state reached",
+          "expected_assistance_response": "No problem! I'll connect you back with the routing agent."
         }
       ]
     }
