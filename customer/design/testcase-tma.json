@@ -1,0 +1,92 @@
+[
+    {
+      "test_case_id": "TC-001",
+      "description": "Vague entry followed by successful unique identification",
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "I want to migrate an application",
+          "expected_state": "State 1: derive_app_search_q",
+          "expected_assistance_response": "I can help you with your migration. To get started, please provide the Application Name, App ID, or its Namespace."
+        },
+        {
+          "turn": 2,
+          "user_input": "oom-test-app",
+          "expected_state": "State 3: format_lookup_status",
+          "expected_internal_logic": "STATUS: UNIQUE identified for oom-test-app",
+          "expected_assistance_response": "I've located out memory app (ID: oom-test-app) in namespace oom-test. Should I proceed with the resource discovery for this application?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-002",
+      "description": "Disambiguation flow for 'payments' search",
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "migrate payments",
+          "expected_state": "State 3: format_lookup_status",
+          "expected_internal_logic": "STATUS: MULTIPLE (payments-api vs legacy-payments)",
+          "expected_assistance_response": "I found multiple matches for that application. Which one should we proceed with?\n\n1) ID: payments-api | Name: payments-api | Namespace: payments | Cluster: api.apps.cluster-alpha.example.com\n2) ID: legacy-pay | Name: legacy-payments | Namespace: payments-old | Cluster: api.apps.cluster-beta.example.com\n\nPlease reply with the number (1 or 2) or the App ID."
+        },
+        {
+          "turn": 2,
+          "user_input": "1",
+          "expected_state": "State 8: resolve_app_selection",
+          "expected_internal_logic": "STATUS: UNIQUE resolved to payments-api",
+          "expected_assistance_response": "I've located payments-api (ID: payments-api) in namespace payments. Should I proceed with the resource discovery for this application?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-003",
+      "description": "Direct identification and full discovery summary",
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "I need help with hello-world",
+          "expected_state": "State 3: format_lookup_status",
+          "expected_assistance_response": "I've located hello-world (ID: hello-world) in namespace default. Should I proceed with the resource discovery for this application?"
+        },
+        {
+          "turn": 2,
+          "user_input": "Yes, please proceed",
+          "expected_state": "State 13: summarize_discovery",
+          "expected_internal_logic": "Execution of States 10, 11, 12",
+          "expected_assistance_response": "I have discovered the following for App 'hello-world' (ID: hello-world): [Summary of Workloads, Network, and Storage]. Would you like to look up another app, re-run this discovery, or return to the main menu?"
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-004",
+      "description": "Intent switch to different topic mid-search",
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "migration help",
+          "expected_state": "State 4: waiting_app_query",
+          "expected_assistance_response": "I can help you with your migration. To get started, please provide the Application Name, App ID, or its Namespace."
+        },
+        {
+          "turn": 2,
+          "user_input": "Actually, I just need a laptop refresh",
+          "expected_state": "State 5: classify_app_query_intent",
+          "expected_internal_logic": "SWITCH_TASK detected; _should_return_to_routing set to true",
+          "expected_assistance_response": "No problem! I'll connect you back with the routing agent so you can be directed to the laptop refresh specialist."
+        }
+      ]
+    },
+    {
+      "test_case_id": "TC-005",
+      "description": "Post-discovery rediscovery request",
+      "conversation": [
+        {
+          "turn": 1,
+          "user_input": "please re-run the scan for the current app",
+          "expected_state": "State 14: classify_post_discovery_intent",
+          "expected_internal_logic": "REDISCOVER detected; transitioning to State 10",
+          "expected_assistance_response": "Understood. I am re-running the resource discovery scan for the current namespace. One moment..."
+        }
+      ]
+    }
+  ]

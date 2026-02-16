@@ -17,7 +17,7 @@ ignored_input_shield_categories:
   - "Self-Harm"  # False positives on common words like "yes"
 # Output shield ignores: categories to allow in agent responses
 ignored_output_shield_categories: []
-lg_state_machine_config: "config/lg-prompts/lg-prompt-type-a-migration.yaml"
+lg_state_machine_config: "config/lg-prompts/lg-prompt-type-a-migration-smaller.yaml"
 sampling_params:
   strategy:
     type: "top_p"
@@ -34,7 +34,5 @@ mcp_servers:
     uri: "http://app-migration-utility-mcp.app-migration-utility.svc.cluster.local/mcp"
     require_approval: "never"
     allowed_tools: ["search_app_catalog", "list_app_catalog"]
-  - name: "snow"
-    uri: "http://mcp-self-service-agent-snow.it-self-service-agent.svc.cluster.local:8000/mcp"
-    require_approval: "never"
+
 knowledge_bases: ["type-a-app-migration"]

@@ -1,0 +1,548 @@
+# State Machine Configuration for Type-A Migration Agent (TMA) — Smaller Prompt Variant
+# This file is aligned to: config/lg-prompts/Requirement Document TMA.md
+# and follows the YAML conventions used in other agents (e.g., lg-prompt-small-scout.yaml).
+
+settings:
+  initial_state: "derive_app_search_q"  # Requirement State 1
+  terminator_env_var: "AGENT_MESSAGE_TERMINATOR"
+  agent_name: "type-a-app-migration"
+  terminal_state: "end"                # Requirement State 15
+  empty_response_retry_count: 3
+
+state_schema:
+  business_fields:
+    # --- App identity / context ---
+    app_id:
+      type: "string"
+      description: "Unique identifier"
+      default: null
+    app_name:
+      type: "string"
+      description: "Display name"
+      default: null
+    namespace:
+      type: "string"
+      description: "K8s namespace/project"
+      default: null
+    source_cluster:
+      type: "string"
+      description: "Source cluster"
+      default: null
+    destination_cluster:
+      type: "string"
+      description: "Destination cluster"
+      default: null
+
+    # --- Lookup / selection helpers ---
+    app_search_q:
+      type: "string"
+      description: "Extracted search substring"
+      default: null
+    app_catalog_candidates:
+      type: "dict"
+      description: "Raw/normalized results from catalog search"
+      default: null
+    app_lookup_results:
+      type: "dict"
+      description: "Formatted prompt/options shown to user"
+      default: null
+    selected_app_choice:
+      type: "string"
+      description: "User selection when multiple matches exist"
+      default: null
+
+    # --- Discovery outputs ---
+    discovery_workloads:
+      type: "dict"
+      description: "Workload names discovered (Deployments/StatefulSets/DaemonSets)"
+      default: null
+    discovery_network:
+      type: "dict"
+      description: "Services/Routes/Ingresses discovered (names/hostnames only)"
+      default: null
+    discovery_storage:
+      type: "dict"
+      description: "PVC names discovered"
+      default: null
+
+    # --- Session manager flag ---
+    _should_return_to_routing:
+      type: "boolean"
+      description: "Flag for session manager"
+      default: false
+
+states:
+  # ---------------------------
+  # State 1: derive_app_search_q
+  # ---------------------------
+  derive_app_search_q:
+    type: "llm_processor"
+    temperature: 0.1
+    allowed_tools: [""]
+    suppress_response: true  # do not show "Q: ..." to the user
+    prompt: |
+      You are a migration assistant.
+      Extract the specific application name, ID, or namespace from the user message.
+
+      CRITICAL: If the user message is generic (e.g., "migration", "ooo", "help me"),
+      output EXACTLY:
+      Q: NONE
+
+      User message: "{last_user_message}"
+
+      Output ONLY:
+      Q: <search_substring>
+    response_analysis:
+      conditions:
+        - name: "q_none"
+          trigger_phrases: ["Q: NONE"]
+          actions:
+            - type: "add_message"
+              message: "I can help you with your migration. To get started, please provide the Application Name, App ID, or its Namespace."
+            - type: "transition"
+              target: "waiting_app_query"  # Requirement State 4
+        - name: "q_value"
+          trigger_phrases: ["Q:"]
+          actions:
+            - type: "extract_data"
+              pattern: "Q:\\s*(.+)"
+              field_name: "app_search_q"
+              source: "response"
+            - type: "transition"
+              target: "search_app_catalog_normalize"  # Requirement State 2
+      default_transition: "waiting_app_query"
+
+  # --------------------------------
+  # State 2: search_app_catalog_normalize
+  # --------------------------------
+  search_app_catalog_normalize:
+    type: "llm_processor"
+    temperature: 0.2
+    allowed_tools: ["search_app_catalog"]
+    suppress_response: true
+    prompt: |
+      You are an app migration assistant.
+
+      CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently.
+
+      Execute:
+      search_app_catalog(q="{app_search_q}", limit=50, offset=0)
+
+      After the tool returns, output a normalized candidate list (unique tuples only).
+      - If none found, output exactly: CANDIDATES: NONE
+      - Otherwise output:
+        CANDIDATES:
+        1) app_id=<...> | app_name=<...> | namespace=<...> | source_cluster=<...> | destination_cluster=<...>
+    transitions:
+      success: "format_lookup_status"  # Requirement State 3
+    data_storage:
+      app_catalog_candidates: "llm_response"
+
+  # ---------------------------
+  # State 3: format_lookup_status
+  # ---------------------------
+  format_lookup_status:
+    type: "llm_processor"
+    temperature: 0.1
+    allowed_tools: [""]
+    prompt: |
+      You are an app migration assistant.
+
+      Candidates:
+      {app_catalog_candidates.response}
+
+      Your job is to present the catalog lookup result to the user in a conversational way.
+      DO NOT include internal markers like "STATUS:" in your response.
+
+      If 0 matches, respond exactly:
+      I couldn’t find any matching apps in the catalog. Please provide the Application Name, App ID, or Namespace.
+
+      If exactly 1 match, respond exactly in this format:
+      I've located <APP_NAME> (ID: <APP_ID>) in namespace <NAMESPACE>. Should I proceed with the resource discovery for this application?
+
+      If multiple matches, respond exactly in this format:
+      I found multiple matches for that application. Which one should we proceed with?
+
+      1) ID: <APP_ID> | Name: <APP_NAME> | Namespace: <NAMESPACE> | Cluster: <SOURCE_CLUSTER>
+      2) ID: ...
+
+      Please reply with the number (1 to N) or the App ID.
+
+      Rules:
+      - Use unique tuples only
+      - Show up to 15 options
+      - Use SOURCE_CLUSTER value for "Cluster"
+      - Do not invent values
+    transitions:
+      success: "waiting_app_query"
+    data_storage:
+      app_lookup_results: "llm_response"
+    response_analysis:
+      conditions:
+        - name: "unique"
+          trigger_phrases: ["I've located", "(ID:"]
+          actions:
+            - type: "extract_data"
+              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              field_name: "app_name"
+              source: "response"
+            - type: "extract_data"
+              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              field_name: "app_id"
+              source: "response"
+            - type: "extract_data"
+              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              field_name: "namespace"
+              source: "response"
+            - type: "transition"
+              target: "waiting_discovery_confirmation"
+        - name: "multiple"
+          trigger_phrases: ["I found multiple matches for that application"]
+          actions:
+            - type: "transition"
+              target: "waiting_app_selection"  # Requirement State 6
+        - name: "none"
+          trigger_phrases: ["I couldn’t find any matching apps", "I couldn't find any matching apps"]
+          actions:
+            - type: "transition"
+              target: "waiting_app_query"  # Requirement State 4
+      default_transition: "waiting_app_query"
+
+  # ------------------------------------------
+  # Extra (testcase-driven): proceed confirmation
+  # ------------------------------------------
+  waiting_discovery_confirmation:
+    type: "waiting"
+    transitions:
+      user_input: "classify_discovery_confirmation"
+
+  classify_discovery_confirmation:
+    type: "intent_classifier"
+    temperature: 0.2
+    allowed_tools: [""]
+    intent_prompt: |
+      The user was asked: "Should I proceed with the resource discovery for this application?"
+      They responded: "{user_input}"
+
+      Classify their intent:
+      - YES: user wants to proceed with discovery
+      - NO: user does not want to proceed
+      - RETURN_TO_ROUTER: user wants to cancel/stop/return to router
+      - UNCLEAR: ambiguous
+
+      Respond with only: YES, NO, RETURN_TO_ROUTER, or UNCLEAR
+    intent_actions:
+      YES:
+        next_state: "discover_workloads"
+      NO:
+        response: "No problem. Please provide the next Application Name, App ID, or Namespace you want to look up."
+        next_state: "waiting_app_query"
+      RETURN_TO_ROUTER:
+        response: |
+          No problem! I'll connect you back with the routing agent so you can be directed to the right specialist.
+          task_complete_return_to_router
+        data_storage:
+          _should_return_to_routing: true
+        next_state: "end"
+      UNCLEAR:
+        response: "Please reply yes/no: should I proceed with the resource discovery for this application?"
+        next_state: "waiting_discovery_confirmation"
+
+  # ---------------------------
+  # State 4: waiting_app_query
+  # ---------------------------
+  waiting_app_query:
+    type: "waiting"
+    transitions:
+      user_input: "classify_app_query_intent"  # Requirement State 5
+
+  # ---------------------------
+  # State 5: classify_app_query_intent
+  # ---------------------------
+  classify_app_query_intent:
+    type: "intent_classifier"
+    temperature: 0.2
+    allowed_tools: [""]
+    intent_prompt: |
+      The user said: "{user_input}"
+
+      Determine intent:
+      - RETURN_TO_ROUTER: user wants to go back/stop/cancel
+      - SWITCH_TASK: user is switching to a different IT task/topic (e.g., "laptop refresh", "email change")
+      - QUERY: user is providing a search term or application identifier to look up
+      - UNCLEAR: doesn't contain a usable query
+
+      Respond with only: RETURN_TO_ROUTER, SWITCH_TASK, QUERY, or UNCLEAR
+    intent_actions:
+      QUERY:
+        next_state: "derive_app_search_q"
+      RETURN_TO_ROUTER:
+        response: |
+          No problem! I'll connect you back with the routing agent.
+          task_complete_return_to_router
+        data_storage:
+          _should_return_to_routing: true
+        next_state: "end"
+      SWITCH_TASK:
+        response: |
+          No problem! I'll connect you back with the routing agent so you can be directed to the laptop refresh specialist.
+          task_complete_return_to_router
+        data_storage:
+          _should_return_to_routing: true
+        next_state: "end"
+      UNCLEAR:
+        response: "Please provide the app name, app_id, or namespace to search. Or say 'cancel' to return to the router."
+        next_state: "waiting_app_query"
+
+  # ---------------------------
+  # State 6: waiting_app_selection
+  # ---------------------------
+  waiting_app_selection:
+    type: "waiting"
+    transitions:
+      user_input: "classify_app_selection"  # Requirement State 7
+
+  # ---------------------------
+  # State 7: classify_app_selection
+  # ---------------------------
+  classify_app_selection:
+    type: "intent_classifier"
+    temperature: 0.2
+    allowed_tools: [""]
+    intent_prompt: |
+      The user said: "{user_input}"
+      The options provided were:
+      {app_lookup_results.response}
+
+      Determine intent:
+      - RETURN_TO_ROUTER: user wants to cancel or switch topics
+      - RETRY_LOOKUP: user wants to search again with a new query
+      - VALID_SELECTION: user picked an option number (1-15) or a specific app_id from the list
+      - INVALID_SELECTION: selection doesn't match any option
+
+      Respond with only: RETURN_TO_ROUTER, RETRY_LOOKUP, VALID_SELECTION, or INVALID_SELECTION
+    intent_actions:
+      RETURN_TO_ROUTER:
+        response: "task_complete_return_to_router"
+        data_storage:
+          _should_return_to_routing: true
+        next_state: "end"
+      RETRY_LOOKUP:
+        next_state: "waiting_app_query"
+      VALID_SELECTION:
+        data_storage:
+          selected_app_choice: "{user_input}"
+        next_state: "resolve_app_selection"  # Requirement State 8
+      INVALID_SELECTION:
+        response: "I don't see that selection in the options. Please reply with an option number (1-15) or an app_id from the list."
+        next_state: "waiting_app_selection"
+
+  # ---------------------------
+  # State 8: resolve_app_selection
+  # ---------------------------
+  resolve_app_selection:
+    type: "llm_processor"
+    temperature: 0.2
+    allowed_tools: [""]
+    prompt: |
+      Resolve the user choice "{selected_app_choice}" to exactly one option from the list below:
+      {app_lookup_results.response}
+
+      If resolved uniquely, respond exactly:
+      I've located <APP_NAME> (ID: <APP_ID>) in namespace <NAMESPACE>. Should I proceed with the resource discovery for this application?
+
+      Otherwise, respond exactly:
+      Please select one valid option number (1-15) or paste a valid App ID from the list.
+    transitions:
+      success: "waiting_app_selection"
+    response_analysis:
+      conditions:
+        - name: "unique"
+          trigger_phrases: ["I've located", "(ID:"]
+          actions:
+            - type: "extract_data"
+              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              field_name: "app_name"
+              source: "response"
+            - type: "extract_data"
+              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              field_name: "app_id"
+              source: "response"
+            - type: "extract_data"
+              pattern: "I've located\\s+(.+?)\\s*\\(ID:\\s*([^\\)]+)\\)\\s+in namespace\\s+([^\\.]+)\\."
+              field_name: "namespace"
+              source: "response"
+            - type: "transition"
+              target: "waiting_discovery_confirmation"
+        - name: "error"
+          trigger_phrases: ["Please select one valid option number"]
+          actions:
+            - type: "transition"
+              target: "waiting_app_selection"
+      default_transition: "waiting_app_selection"
+
+  # ---------------------------
+  # State 9: waiting_post_discovery
+  # ---------------------------
+  waiting_post_discovery:
+    type: "waiting"
+    transitions:
+      user_input: "classify_post_discovery_intent"  # Requirement State 14
+
+  # ---------------------------
+  # State 10: discover_workloads
+  # ---------------------------
+  discover_workloads:
+    type: "llm_processor"
+    temperature: 0.2
+    allowed_tools: ["resources_list"]
+    suppress_response: true
+    prompt: |
+      You have identified the application in namespace "{namespace}".
+
+      CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently.
+      CRITICAL: Do NOT fetch or output Secret data.
+
+      Use the OpenShift MCP tool `resources_list` to list:
+      - resources_list(apiVersion="apps/v1", kind="Deployment", namespace="{namespace}")
+      - resources_list(apiVersion="apps/v1", kind="StatefulSet", namespace="{namespace}")
+      - resources_list(apiVersion="apps/v1", kind="DaemonSet", namespace="{namespace}")
+
+      Then output ONLY the names of the resources found, grouped by kind. Do not invent values.
+    transitions:
+      success: "discover_networking"  # Requirement State 11
+    data_storage:
+      discovery_workloads: "llm_response"
+
+  # ---------------------------
+  # State 11: discover_networking
+  # ---------------------------
+  discover_networking:
+    type: "llm_processor"
+    temperature: 0.2
+    allowed_tools: ["resources_list"]
+    suppress_response: true
+    prompt: |
+      In namespace "{namespace}", use `resources_list` to list:
+      - resources_list(apiVersion="v1", kind="Service", namespace="{namespace}")
+      - resources_list(apiVersion="route.openshift.io/v1", kind="Route", namespace="{namespace}")
+      - resources_list(apiVersion="networking.k8s.io/v1", kind="Ingress", namespace="{namespace}")
+
+      CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently.
+      CRITICAL: Do NOT fetch or output Secret data.
+
+      Output the names and hostnames for these resources (if present). Do not fetch Secret data.
+    transitions:
+      success: "discover_storage"  # Requirement State 12
+    data_storage:
+      discovery_network: "llm_response"
+
+  # ---------------------------
+  # State 12: discover_storage
+  # ---------------------------
+  discover_storage:
+    type: "llm_processor"
+    temperature: 0.2
+    allowed_tools: ["resources_list"]
+    suppress_response: true
+    prompt: |
+      In namespace "{namespace}", use `resources_list` to list:
+      - resources_list(apiVersion="v1", kind="PersistentVolumeClaim", namespace="{namespace}")
+
+      CRITICAL: DO NOT announce what you are about to do. Execute tool calls silently.
+      CRITICAL: Do NOT fetch or output Secret data.
+
+      List the names of the PVCs found. If none, state exactly: STORAGE: NONE
+    transitions:
+      success: "summarize_discovery"  # Requirement State 13
+    data_storage:
+      discovery_storage: "llm_response"
+
+  # ---------------------------
+  # State 13: summarize_discovery
+  # ---------------------------
+  summarize_discovery:
+    type: "llm_processor"
+    temperature: 0.2
+    allowed_tools: [""]
+    prompt: |
+      You have discovered the following for App "{app_name}" (ID: {app_id}) in namespace "{namespace}":
+
+      Workloads: {discovery_workloads.response}
+      Network: {discovery_network.response}
+      Storage: {discovery_storage.response}
+
+      Summarize this discovery conversationally for the user. Mention the App context and the OpenShift resources found.
+      End by asking: "Do you want to look up another app, re-run discovery, or return to the main menu?"
+    transitions:
+      success: "waiting_post_discovery"  # Requirement State 9
+
+  # ---------------------------
+  # State 14: classify_post_discovery_intent
+  # ---------------------------
+  classify_post_discovery_intent:
+    type: "intent_classifier"
+    temperature: 0.2
+    allowed_tools: [""]
+    intent_prompt: |
+      The user said: "{user_input}"
+
+      Analyze intent:
+      - ANOTHER_APP: user wants to search for a new application
+      - REDISCOVER: user wants to re-run the scan for the current namespace
+      - RETURN_TO_ROUTER: user wants to go back to the router agent
+      - UNCLEAR: ambiguous
+
+      Respond with only: ANOTHER_APP, REDISCOVER, RETURN_TO_ROUTER, or UNCLEAR
+    intent_actions:
+      ANOTHER_APP:
+        response: "Okay — please provide the next app name, app_id, or namespace to look up."
+        data_storage:
+          app_id: null
+          app_name: null
+          namespace: null
+          source_cluster: null
+          destination_cluster: null
+          app_search_q: null
+          app_catalog_candidates: null
+          app_lookup_results: null
+          selected_app_choice: null
+          discovery_workloads: null
+          discovery_network: null
+          discovery_storage: null
+        next_state: "waiting_app_query"  # Requirement State 4
+      REDISCOVER:
+        response: "Understood. I am re-running the resource discovery scan for the current namespace. One moment..."
+        next_state: "discover_workloads"  # Requirement State 10
+      RETURN_TO_ROUTER:
+        response: "task_complete_return_to_router"
+        data_storage:
+          _should_return_to_routing: true
+        next_state: "end"
+      UNCLEAR:
+        response: "Please reply with one of: another app / re-run discovery / return to router."
+        next_state: "waiting_post_discovery"
+
+  # ---------------------------
+  # State 15: end
+  # ---------------------------
+  end:
+    type: "terminal"
+    reset_behavior:
+      reset_state: "derive_app_search_q"
+      clear_data:
+        - "messages"
+        - "current_state"
+        - "app_id"
+        - "app_name"
+        - "namespace"
+        - "source_cluster"
+        - "destination_cluster"
+        - "app_search_q"
+        - "app_catalog_candidates"
+        - "app_lookup_results"
+        - "selected_app_choice"
+        - "discovery_workloads"
+        - "discovery_network"
+        - "discovery_storage"
+        # NOTE: _should_return_to_routing is NOT cleared here; it must persist until session manager detects it.

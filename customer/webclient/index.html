@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IT Self-Service Agent</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="header__title">IT Self-Service Agent</div>
+        <div class="header__subtitle">Email-first chat (Request Manager)</div>
+      </header>
+
+      <main class="main">
+        <section id="screen-auth" class="card">
+          <h1 class="card__title">Start a conversation</h1>
+          <p class="card__hint">
+            Enter your email. We’ll start the chat by asking the agent to
+            introduce itself.
+          </p>
+
+          <form id="auth-form" class="form">
+            <label class="field">
+              <div class="field__label">Email</div>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autocomplete="email"
+                placeholder="alice.johnson@company.com"
+                required
+              />
+            </label>
+
+            <label class="field">
+              <div class="field__label">Request Manager URL</div>
+              <input
+                id="rmUrl"
+                name="rmUrl"
+                type="url"
+                placeholder="http://localhost:8080"
+              />
+              <div class="field__help">
+                Default is <code>http://localhost:8080</code>.
+              </div>
+            </label>
+
+            <div class="actions">
+              <button id="start" type="submit" class="btn btn--primary">
+                Start chat
+              </button>
+            </div>
+
+            <div id="auth-error" class="error" role="alert" aria-live="polite"></div>
+          </form>
+        </section>
+
+        <section id="screen-chat" class="card hidden" aria-live="polite">
+          <div class="chatHeader">
+            <div class="chatHeader__left">
+              <div class="chatHeader__title">Conversation</div>
+              <div id="chat-meta" class="chatHeader__meta"></div>
+            </div>
+            <div class="chatHeader__right">
+              <button id="reset" class="btn btn--ghost" type="button">Reset</button>
+              <button id="changeUser" class="btn btn--ghost" type="button">
+                Change email
+              </button>
+            </div>
+          </div>
+
+          <div id="messages" class="messages" role="log" aria-live="polite"></div>
+
+          <form id="chat-form" class="composer">
+            <input
+              id="message"
+              name="message"
+              type="text"
+              placeholder="Type your message…"
+              autocomplete="off"
+              required
+            />
+            <button id="send" class="btn btn--primary" type="submit">Send</button>
+          </form>
+
+          <div id="chat-error" class="error" role="alert" aria-live="polite"></div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>Uses <code>POST /api/v1/requests/generic</code></span>
+      </footer>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
+

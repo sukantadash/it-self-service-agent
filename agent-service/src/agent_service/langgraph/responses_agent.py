@@ -13,6 +13,58 @@ from .util import load_config_from_path, resolve_agent_service_path
 logger = configure_logging("agent-service")
 
 
+def _env_flag_enabled(name: str, default: bool = False) -> bool:
+    """Parse common truthy/falsey env var values."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    val = raw.strip().lower()
+    return val in {"1", "true", "yes", "y", "on"}
+
+def _summarize_llamastack_response(resp: Any) -> dict[str, Any]:
+    """Summarize LlamaStack response object without dumping large payloads."""
+    rid = getattr(resp, "id", None)
+    status = getattr(resp, "status", None)
+    model = getattr(resp, "model", None)
+    output_text = getattr(resp, "output_text", None)
+    out = getattr(resp, "output", None) or []
+
+    output_types: list[str] = []
+    mcp_calls: list[dict[str, Any]] = []
+    try:
+        for item in out:
+            itype = getattr(item, "type", None)
+            if itype:
+                output_types.append(str(itype))
+            if str(itype) == "mcp_call":
+                mcp_calls.append(
+                    {
+                        "server_label": getattr(item, "server_label", None),
+                        "name": getattr(item, "name", None),
+                        "status": getattr(item, "status", None),
+                        "has_error": bool(getattr(item, "error", None)),
+                        "output_len": (
+                            len(getattr(item, "output"))
+                            if isinstance(getattr(item, "output", None), str)
+                            else None
+                        ),
+                    }
+                )
+    except Exception:
+        pass
+
+    return {
+        "id": rid,
+        "status": status,
+        "model": model,
+        "output_text_len": len(output_text) if isinstance(output_text, str) else None,
+        "output_text": output_text if isinstance(output_text, str) else None,
+        "output_items": len(out) if hasattr(out, "__len__") else None,
+        "output_types": output_types[:50],
+        "mcp_calls": mcp_calls[:20],
+    }
+
+
 class Agent:
     """
     Agent that loads configuration from agent YAML files and provides LlamaStack integration.
@@ -715,6 +767,21 @@ class Agent:
                     self.tools = await self._get_mcp_tools_to_use(mcp_server_configs)
                 tools_to_use = self.tools
 
+            # Optional wire logging of request/response to LlamaStack (sanitized)
+            # Enable by setting: LLAMASTACK_IO_LOG=true
+            io_log_enabled = _env_flag_enabled("LLAMASTACK_IO_LOG", default=False)
+            if io_log_enabled:
+                logger.info(
+                    "LlamaStack request",
+                    agent_name=self.agent_name,
+                    current_state_name=current_state_name,
+                    model=self.model,
+                    temperature=response_config.get("temperature"),
+                    message_count=len(messages_with_system),
+                    messages=messages_with_system,
+                    tools=tools_to_use,
+                )
+
             # Only pass tools if tools_to_use is not empty
             if tools_to_use:
                 response = await self.async_llama_client.responses.create(
@@ -728,6 +795,14 @@ class Agent:
                     input=messages_with_system,
                     model=self.model,
                     **response_config,
+                )
+
+            if io_log_enabled:
+                logger.info(
+                    "LlamaStack response",
+                    agent_name=self.agent_name,
+                    current_state_name=current_state_name,
+                    response=_summarize_llamastack_response(response),
                 )
 
             # Import token counting if available

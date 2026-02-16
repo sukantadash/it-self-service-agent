@@ -21,7 +21,7 @@ oc start-build bc/ssa-agent-service -n $NAMESPACE --from-dir=. -F
 
 oc rollout restart deploy/self-service-agent-agent-service -n $NAMESPACE
 
-
+oc rollout status deploy/self-service-agent-agent-service -n $NAMESPACE
 
 
 kubectl -n "$NAMESPACE" create secret generic self-service-agent-servicenow-credentials \
