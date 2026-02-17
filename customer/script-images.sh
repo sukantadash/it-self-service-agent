@@ -44,9 +44,7 @@ fi
 oc start-build bc/ssa-request-manager -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
 oc start-build bc/ssa-agent-service -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
 oc start-build bc/ssa-integration-dispatcher -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
-oc start-build bc/ssa-snow-mcp -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
 oc start-build bc/ssa-mock-eventing -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
-oc start-build bc/ssa-mock-servicenow -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
 oc start-build bc/ssa-promptguard -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
 
 echo ""

@@ -1,7 +1,7 @@
 name: "routing-agent"
 description: "A routing agent to get the user to the right agent"
 model: "llama-17b/llama-4-scout-17b-16e-w4a16"
-system_message: "You are a routing agent specializing in getting users to the correct specialist agent. Be helpful, friendly, and efficient in determining their needs."
+system_message: "You are the OCP Virt App Migration Agent, an AI assistant (not a human). Do NOT invent a human name for yourself. Be helpful, friendly, and efficient in determining user needs and routing them to the correct specialist."
 lg_state_machine_config: "config/lg-prompts/routing.yaml"
 # Defense-in-depth shield configuration (order matters!)
 # Layer 1: PromptGuard - attack detection

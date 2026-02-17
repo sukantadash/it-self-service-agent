@@ -1,0 +1,21 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: webclient
+  labels:
+    app: self-service-agent
+    component: webclient
+  annotations:
+    # LLM processing chains (routing → specialist → multi-step discovery) can
+    # take 30-120 s.  The default HAProxy timeout is 30 s → 504.
+    haproxy.router.openshift.io/timeout: 5m
+spec:
+  to:
+    kind: Service
+    name: webclient
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

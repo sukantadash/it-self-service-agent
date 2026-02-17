@@ -28,17 +28,7 @@ objects:
   - apiVersion: image.openshift.io/v1
     kind: ImageStream
     metadata:
-      name: self-service-agent-snow-mcp
-      labels: {app: self-service-agent}
-  - apiVersion: image.openshift.io/v1
-    kind: ImageStream
-    metadata:
       name: self-service-agent-mock-eventing
-      labels: {app: self-service-agent}
-  - apiVersion: image.openshift.io/v1
-    kind: ImageStream
-    metadata:
-      name: self-service-agent-mock-servicenow
       labels: {app: self-service-agent}
   - apiVersion: image.openshift.io/v1
     kind: ImageStream
@@ -123,29 +113,6 @@ objects:
   - apiVersion: build.openshift.io/v1
     kind: BuildConfig
     metadata:
-      name: ssa-snow-mcp
-      labels: {app: self-service-agent, component: snow-mcp}
-    spec:
-      source:
-        type: Binary
-      strategy:
-        type: Docker
-        dockerStrategy:
-          dockerfilePath: Containerfile.mcp-template
-          buildArgs:
-            - name: SERVICE_NAME
-              value: mcp-servers/snow
-            - name: MODULE_NAME
-              value: snow.server
-      output:
-        to:
-          kind: ImageStreamTag
-          name: self-service-agent-snow-mcp:${IMAGE_TAG}
-      triggers: []
-
-  - apiVersion: build.openshift.io/v1
-    kind: BuildConfig
-    metadata:
       name: ssa-mock-eventing
       labels: {app: self-service-agent, component: mock-eventing}
     spec:
@@ -164,29 +131,6 @@ objects:
         to:
           kind: ImageStreamTag
           name: self-service-agent-mock-eventing:${IMAGE_TAG}
-      triggers: []
-
-  - apiVersion: build.openshift.io/v1
-    kind: BuildConfig
-    metadata:
-      name: ssa-mock-servicenow
-      labels: {app: self-service-agent, component: mock-servicenow}
-    spec:
-      source:
-        type: Binary
-      strategy:
-        type: Docker
-        dockerStrategy:
-          dockerfilePath: Containerfile.services-template
-          buildArgs:
-            - name: SERVICE_NAME
-              value: mock-service-now
-            - name: MODULE_NAME
-              value: mock_servicenow.server
-      output:
-        to:
-          kind: ImageStreamTag
-          name: self-service-agent-mock-servicenow:${IMAGE_TAG}
       triggers: []
 
   - apiVersion: build.openshift.io/v1

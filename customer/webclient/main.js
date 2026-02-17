@@ -1,11 +1,12 @@
 const STORAGE_KEYS = {
   email: "ssa.webclient.email",
-  rmUrl: "ssa.webclient.requestManagerUrl",
   rmSessionId: "ssa.webclient.requestManagerSessionId",
 };
 
-const DEFAULT_RM_URL = "http://localhost:8080";
+// Sent silently on chat start so the agent greets first
 const INITIAL_MESSAGE = "Tell me how you can help";
+// Client-side abort timeout (5 min) — must match the Route annotation
+const FETCH_TIMEOUT_MS = 5 * 60 * 1000;
 
 function $(id) {
   const el = document.getElementById(id);
@@ -23,13 +24,7 @@ function safeTrim(s) {
 
 function isValidEmail(email) {
   const e = safeTrim(email);
-  // pragmatic check; server-side auth is out of scope here
   return e.length >= 3 && e.includes("@") && !e.includes(" ");
-}
-
-function normalizeBaseUrl(url) {
-  const u = safeTrim(url) || DEFAULT_RM_URL;
-  return u.endsWith("/") ? u.slice(0, -1) : u;
 }
 
 function getOrCreateSessionId() {
@@ -52,7 +47,6 @@ function setBusy(isBusy) {
   $("start").disabled = isBusy;
   $("send").disabled = isBusy;
   $("email").disabled = isBusy;
-  $("rmUrl").disabled = isBusy;
   $("message").disabled = isBusy;
   $("reset").disabled = isBusy;
   $("changeUser").disabled = isBusy;
@@ -101,11 +95,36 @@ function appendMessage({ role, content, time }) {
   container.scrollTop = container.scrollHeight;
 }
 
+/** Show a typing indicator bubble in the messages area. Returns a remove() handle. */
+function showTypingIndicator() {
+  const container = $("messages");
+  const indicator = document.createElement("div");
+  indicator.className = "msg msg--agent typing-indicator";
+  indicator.innerHTML = `
+    <div class="msg__meta">
+      <div class="msg__role">Agent</div>
+      <div class="msg__time">${nowTime()}</div>
+    </div>
+    <div class="msg__content typing-dots">
+      <span></span><span></span><span></span>
+    </div>`;
+  container.appendChild(indicator);
+  container.scrollTop = container.scrollHeight;
+
+  return {
+    remove() {
+      if (indicator.parentNode) indicator.parentNode.removeChild(indicator);
+    },
+  };
+}
+
 function clearMessages() {
   $("messages").innerHTML = "";
 }
 
-async function postToRequestManager({ rmUrl, email, content }) {
+// --------------- API communication ---------------
+
+async function postToRequestManager({ email, content }) {
   const sessionId = getOrCreateSessionId();
 
   const payload = {
@@ -114,8 +133,6 @@ async function postToRequestManager({ rmUrl, email, content }) {
     content,
     request_type: "message",
     metadata: {
-      // Mirrors what the CLI client sends (extra keys are fine for generic endpoint).
-      // See: shared-clients/src/shared_clients/request_manager_client.py (CLIChatClient.send_message)
       command_context: { command: "chat", args: [] },
       request_manager_session_id: sessionId,
       user_email: email,
@@ -125,42 +142,54 @@ async function postToRequestManager({ rmUrl, email, content }) {
     },
   };
 
-  const res = await fetch(`${rmUrl}/api/v1/requests/generic`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-user-id": email,
-    },
-    body: JSON.stringify(payload),
-  });
+  // Abort controller — 5 min safety net (matches Route annotation)
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-  let data;
   try {
-    data = await res.json();
-  } catch {
+    const res = await fetch("/api/v1/requests/generic", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-user-id": email,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    // Read body as text first to avoid "body stream already read" error
     const raw = await res.text();
-    throw new Error(`Non-JSON response (${res.status}): ${raw}`);
+
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      throw new Error(`Non-JSON response (${res.status}): ${raw.slice(0, 300)}`);
+    }
+
+    if (!res.ok) {
+      const detail = data?.detail || data?.error || JSON.stringify(data);
+      throw new Error(`Request failed (${res.status}): ${detail}`);
+    }
+
+    const contentOut = data?.response?.content ?? data?.content ?? "";
+    const sessionOut = data?.session_id ?? "";
+    const requestOut = data?.request_id ?? "";
+
+    return { content: String(contentOut ?? ""), sessionId: sessionOut, requestId: requestOut };
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error("Request timed out — the agent is taking too long. Please try again.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  if (!res.ok) {
-    const detail = data?.detail || data?.error || JSON.stringify(data);
-    throw new Error(`Request failed (${res.status}): ${detail}`);
-  }
-
-  // Response format can be either:
-  // - { response: { content, agent_id, ... }, session_id, request_id, ... }
-  // - or (defensive) { content, agent_id, ... }
-  const contentOut = data?.response?.content ?? data?.content ?? "";
-  const sessionOut = data?.session_id ?? "";
-  const requestOut = data?.request_id ?? "";
-
-  return { content: String(contentOut ?? ""), sessionId: sessionOut, requestId: requestOut };
 }
 
-function setChatMeta({ email, rmUrl, sessionId }) {
+function setChatMeta({ email, sessionId }) {
   const meta = [
     `Email: ${email}`,
-    `Request Manager: ${rmUrl}`,
     sessionId ? `Session: ${sessionId}` : null,
   ]
     .filter(Boolean)
@@ -173,7 +202,6 @@ async function startChat() {
   setChatError("");
 
   const email = safeTrim($("email").value);
-  const rmUrl = normalizeBaseUrl($("rmUrl").value);
 
   if (!isValidEmail(email)) {
     setAuthError("Please enter a valid email address.");
@@ -181,23 +209,24 @@ async function startChat() {
   }
 
   localStorage.setItem(STORAGE_KEYS.email, email);
-  localStorage.setItem(STORAGE_KEYS.rmUrl, rmUrl);
-
-  // Keep per-email session IDs separate (so switching emails doesn’t leak sessions)
   localStorage.setItem(STORAGE_KEYS.rmSessionId, crypto.randomUUID());
 
   showScreen("chat");
   clearMessages();
-  setChatMeta({ email, rmUrl, sessionId: "" });
+  setChatMeta({ email, sessionId: "" });
 
+  // Send INITIAL_MESSAGE silently — don't show it in the chat.
+  // Only the agent's reply appears, so it looks agent-initiated.
   setBusy(true);
+  const typing = showTypingIndicator();
   try {
-    appendMessage({ role: "user", content: INITIAL_MESSAGE });
-    const out = await postToRequestManager({ rmUrl, email, content: INITIAL_MESSAGE });
+    const out = await postToRequestManager({ email, content: INITIAL_MESSAGE });
+    typing.remove();
     appendMessage({ role: "agent", content: out.content });
-    setChatMeta({ email, rmUrl, sessionId: out.sessionId });
+    setChatMeta({ email, sessionId: out.sessionId });
     $("message").focus();
   } catch (e) {
+    typing.remove();
     setChatError(e?.message || String(e));
   } finally {
     setBusy(false);
@@ -207,10 +236,9 @@ async function startChat() {
 async function sendChatMessage() {
   setChatError("");
   const email = safeTrim(localStorage.getItem(STORAGE_KEYS.email));
-  const rmUrl = normalizeBaseUrl(localStorage.getItem(STORAGE_KEYS.rmUrl));
   const msg = safeTrim($("message").value);
 
-  if (!email || !rmUrl) {
+  if (!email) {
     showScreen("auth");
     setAuthError("Missing session info. Please start again.");
     return;
@@ -222,11 +250,14 @@ async function sendChatMessage() {
   appendMessage({ role: "user", content: msg });
 
   setBusy(true);
+  const typing = showTypingIndicator();
   try {
-    const out = await postToRequestManager({ rmUrl, email, content: msg });
+    const out = await postToRequestManager({ email, content: msg });
+    typing.remove();
     appendMessage({ role: "agent", content: out.content });
-    setChatMeta({ email, rmUrl, sessionId: out.sessionId });
+    setChatMeta({ email, sessionId: out.sessionId });
   } catch (e) {
+    typing.remove();
     setChatError(e?.message || String(e));
   } finally {
     setBusy(false);
@@ -237,20 +268,21 @@ async function sendChatMessage() {
 async function resetConversation() {
   setChatError("");
   const email = safeTrim(localStorage.getItem(STORAGE_KEYS.email));
-  const rmUrl = normalizeBaseUrl(localStorage.getItem(STORAGE_KEYS.rmUrl));
-  if (!email || !rmUrl) return;
+  if (!email) return;
 
-  // new session id + clear local messages; server-side reset is done by sending "reset"
   localStorage.setItem(STORAGE_KEYS.rmSessionId, crypto.randomUUID());
   clearMessages();
 
   setBusy(true);
+  const typing = showTypingIndicator();
   try {
     appendMessage({ role: "user", content: "reset" });
-    const out = await postToRequestManager({ rmUrl, email, content: "reset" });
+    const out = await postToRequestManager({ email, content: "reset" });
+    typing.remove();
     appendMessage({ role: "agent", content: out.content });
-    setChatMeta({ email, rmUrl, sessionId: out.sessionId });
+    setChatMeta({ email, sessionId: out.sessionId });
   } catch (e) {
+    typing.remove();
     setChatError(e?.message || String(e));
   } finally {
     setBusy(false);
@@ -266,9 +298,7 @@ function changeEmail() {
 
 function hydrateFromStorage() {
   const savedEmail = safeTrim(localStorage.getItem(STORAGE_KEYS.email));
-  const savedUrl = safeTrim(localStorage.getItem(STORAGE_KEYS.rmUrl));
   if (savedEmail) $("email").value = savedEmail;
-  $("rmUrl").value = savedUrl || DEFAULT_RM_URL;
 }
 
 function wireEvents() {
@@ -289,4 +319,3 @@ function wireEvents() {
 hydrateFromStorage();
 wireEvents();
 showScreen("auth");
-

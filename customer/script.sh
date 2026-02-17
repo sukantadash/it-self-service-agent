@@ -24,10 +24,11 @@ oc rollout restart deploy/self-service-agent-agent-service -n $NAMESPACE
 oc rollout status deploy/self-service-agent-agent-service -n $NAMESPACE
 
 
-kubectl -n "$NAMESPACE" create secret generic self-service-agent-servicenow-credentials \
-  --from-literal=servicenow-instance-url="http://self-service-agent-mock-servicenow:8080" \
-  --from-literal=servicenow-api-key="now_mock_api_key" \
-  --dry-run=client -o yaml | kubectl apply -f -
+# Snow MCP / Mock ServiceNow removed — secret no longer needed
+# kubectl -n "$NAMESPACE" create secret generic self-service-agent-servicenow-credentials \
+#   --from-literal=servicenow-instance-url="http://self-service-agent-mock-servicenow:8080" \
+#   --from-literal=servicenow-api-key="now_mock_api_key" \
+#   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n "$NAMESPACE" create secret generic pgvector \
   --from-literal=host="pgvector.llama-stack.svc.cluster.local" \
@@ -90,7 +91,7 @@ kubectl -n "$NAMESPACE" exec -it deploy/self-service-agent-request-manager -- \
 kubectl delete job -l app.kubernetes.io/component=init -n "$NAMESPACE" --ignore-not-found
 kubectl delete job -l app.kubernetes.io/name=self-service-agent -n "$NAMESPACE" --ignore-not-found
 
-mv ./customer/mcp-servers-0.5.8.tgz ./helm/charts/
+# mv ./customer/mcp-servers-0.5.8.tgz ./helm/charts/
 
 ## comment the dependencies: in chart.yaml
 
@@ -143,3 +144,21 @@ uv venv
 source .venv/bin/activate
 uv sync
 python run_conversations.py --reset-conversation
+
+
+#webclient
+export NAMESPACE=it-self-service-agent
+oc project $NAMESPACE
+oc apply -f customer/webclient/openshift/imagestream.yaml -n $NAMESPACE
+oc apply -f customer/webclient/openshift/buildconfig.yaml -n $NAMESPACE
+
+oc start-build bc/webclient -n $NAMESPACE --from-dir=customer/webclient -F
+
+
+oc apply -k customer/webclient/deployment/ -n $NAMESPACE
+
+oc rollout restart deploy/webclient -n $NAMESPACE
+
+oc rollout status deploy/webclient -n $NAMESPACE
+
+oc get route -n $NAMESPACE | grep webclient | awk '{print $2}'

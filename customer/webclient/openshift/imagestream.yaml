@@ -1,0 +1,7 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: webclient
+  labels:
+    app: self-service-agent
+    component: webclient

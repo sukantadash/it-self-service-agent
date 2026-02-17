@@ -74,9 +74,7 @@ fi
 oc start-build bc/ssa-request-manager-repo -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
 oc start-build bc/ssa-agent-service-repo -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
 oc start-build bc/ssa-integration-dispatcher-repo -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
-oc start-build bc/ssa-snow-mcp-repo -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
 oc start-build bc/ssa-mock-eventing-repo -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
-oc start-build bc/ssa-mock-servicenow-repo -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
 oc start-build bc/ssa-promptguard-repo -n "${NAMESPACE}" --from-dir="${ROOT_DIR}" ${FOLLOW_FLAG}
 
 echo ""

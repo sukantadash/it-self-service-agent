@@ -87,28 +87,6 @@ objects:
   - apiVersion: build.openshift.io/v1
     kind: BuildConfig
     metadata:
-      name: ssa-snow-mcp-repo
-      labels: {app: self-service-agent, component: snow-mcp}
-    spec:
-      source: {type: Binary}
-      strategy:
-        type: Docker
-        dockerStrategy:
-          dockerfilePath: Containerfile.mcp-template
-          buildArgs:
-            - {name: SERVICE_NAME, value: mcp-servers/snow}
-            - {name: MODULE_NAME, value: snow.server}
-      output:
-        to:
-          kind: DockerImage
-          name: ${IMAGE_REPO}/self-service-agent-snow-mcp:${IMAGE_TAG}
-        pushSecret:
-          name: ${REPO_PUSH_SECRET_NAME}
-      triggers: []
-
-  - apiVersion: build.openshift.io/v1
-    kind: BuildConfig
-    metadata:
       name: ssa-mock-eventing-repo
       labels: {app: self-service-agent, component: mock-eventing}
     spec:
@@ -124,28 +102,6 @@ objects:
         to:
           kind: DockerImage
           name: ${IMAGE_REPO}/self-service-agent-mock-eventing:${IMAGE_TAG}
-        pushSecret:
-          name: ${REPO_PUSH_SECRET_NAME}
-      triggers: []
-
-  - apiVersion: build.openshift.io/v1
-    kind: BuildConfig
-    metadata:
-      name: ssa-mock-servicenow-repo
-      labels: {app: self-service-agent, component: mock-servicenow}
-    spec:
-      source: {type: Binary}
-      strategy:
-        type: Docker
-        dockerStrategy:
-          dockerfilePath: Containerfile.services-template
-          buildArgs:
-            - {name: SERVICE_NAME, value: mock-service-now}
-            - {name: MODULE_NAME, value: mock_servicenow.server}
-      output:
-        to:
-          kind: DockerImage
-          name: ${IMAGE_REPO}/self-service-agent-mock-servicenow:${IMAGE_TAG}
         pushSecret:
           name: ${REPO_PUSH_SECRET_NAME}
       triggers: []
